@@ -1,6 +1,7 @@
 package ticktick
 
 import (
+	"embed"
 	_ "embed"
 	"net/http"
 	"sync"
@@ -11,8 +12,12 @@ import (
 //go:embed test/index.html
 var indexHtml []byte
 
+//go:embed test
+var srcfs embed.FS
+
 func TestJs(t *testing.T) {
-	j, err := NewJsx()
+	j, err := NewJsx(WithFS(srcfs))
+	//j, err := NewJsx()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +41,7 @@ func TestHttp(t *testing.T) {
 	}
 
 	http.ListenAndServe(":8081", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		j.Refresh()
+		j.reload()
 		ti := time.Now()
 		s, err := j.Mount(string(indexHtml), MountEndpoint{
 			Endpoint:  "<main></main>",

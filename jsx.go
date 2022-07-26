@@ -8,6 +8,7 @@ import (
 	"github.com/dop251/goja_nodejs/console"
 	"github.com/dop251/goja_nodejs/require"
 	"github.com/zbysir/gojsx/internal/js"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,9 +35,13 @@ func NewTransformer() (*Transformer, error) {
 	}, nil
 }
 
-func (t *Transformer) transform(fileName string, c string) (string, error) {
+func (t *Transformer) transform(filePath string, c string) (string, error) {
 	t.vm.Set("code", c)
-	v, err := t.vm.RunString(fmt.Sprintf(`Babel.transform(code, { presets: ["react","es2015"], sourceMaps: 'inline', sourceFileName: '%s', plugins: [
+	_, name := filepath.Split(filePath)
+	t.vm.Set("filepath", filePath)
+	t.vm.Set("filename", name)
+
+	v, err := t.vm.RunString(fmt.Sprintf(`Babel.transform(code, { presets: ["react","es2015"], sourceMaps: 'inline', sourceFileName: filename, filename: filepath, plugins: [
     [
       "transform-react-jsx",
       {
@@ -49,7 +54,7 @@ func (t *Transformer) transform(fileName string, c string) (string, error) {
 			"isTSX": true,
 		}
 	]
-  ] }).code`, fileName))
+  ] }).code`))
 	if err != nil {
 		return "", err
 	}
@@ -57,23 +62,23 @@ func (t *Transformer) transform(fileName string, c string) (string, error) {
 	return v.String(), nil
 }
 
-func (x *Jsx) RunJs(fileName string, src string, transform bool) (v goja.Value, err error) {
+func (j *Jsx) RunJs(fileName string, src string, transform bool) (v goja.Value, err error) {
 	if transform {
-		src, err = x.tr.transform(fileName, src)
+		src, err = j.tr.transform(fileName, src)
 		if err != nil {
 			return nil, err
 		}
 		//fmt.Printf("comp: %v %v\n", fileName, c)
 	}
 
-	v, err = x.vm.RunString(src)
+	v, err = j.vm.RunString(src)
 	return v, err
 }
 
-// 预编译多个文件
-func (x *Jsx) Compile(path string) (err error) {
+// Compile 预编译多个文件
+func (j *Jsx) Compile(path string) (err error) {
 
-	//x.tr.transform(path)
+	//j.tr.transform(path)
 	return nil
 }
 
@@ -83,25 +88,37 @@ type MountEndpoint struct {
 	Props     interface{}
 }
 
-func (x *Jsx) Mount(indexTpl string, es ...MountEndpoint) (h string, err error) {
-	x.lock.Lock()
-	defer x.lock.Unlock()
+// Render a component to html
+func (j *Jsx) Render(component string, props interface{}) (n string, err error) {
+	j.lock.Lock()
+	defer j.lock.Unlock()
 
+	err = j.vm.Set("props", j.vm.ToValue(props))
+	if err != nil {
+		return "", err
+	}
+	res, err := j.RunJs(component, fmt.Sprintf(`require("%v").default(props)`, component), false)
+	if err != nil {
+		return "", err
+	}
+
+	vdom := VDom{}
+	err = j.vm.ExportTo(res, &vdom)
+	if err != nil {
+		return "", err
+	}
+	return vdom.Render(), nil
+}
+
+// Mount render component to tpl
+func (j *Jsx) Mount(indexTpl string, es ...MountEndpoint) (h string, err error) {
 	var oldnew []string
 	for _, e := range es {
-		x.vm.Set("props", x.vm.ToValue(e.Props))
-		res, err := x.RunJs("index.js", fmt.Sprintf(`require("%v").default(props)`, e.Component), false)
-		if err != nil {
-			panic(err)
-		}
-
-		vdom := VDom{}
-		err = x.vm.ExportTo(res, &vdom)
+		n, err := j.Render(e.Component, e.Props)
 		if err != nil {
 			return "", err
 		}
-
-		oldnew = append(oldnew, e.Endpoint, vdom.Render())
+		oldnew = append(oldnew, e.Endpoint, n)
 		//fmt.Printf("vdom: \n%+v", vdom)
 	}
 	re := strings.NewReplacer(oldnew...)
@@ -109,44 +126,42 @@ func (x *Jsx) Mount(indexTpl string, es ...MountEndpoint) (h string, err error) 
 	return s, err
 }
 
-func (x *Jsx) PrintProps(ps map[string]interface{}, skipInner bool) string {
-	if len(ps) == 0 {
-		return ""
-	}
-
-	var s strings.Builder
-	m := map[string]interface{}{}
-	for k, v := range ps {
-		if k == "children" {
-			continue
-		}
-		if skipInner {
-			if k == "style" || k == "className" {
-				continue
-			}
-		}
-
-		s.WriteString(fmt.Sprintf("%v=%v", k, v))
-		m[k] = v
-	}
-	if s.Len() == 0 {
-		return ""
-	}
-
-	return fmt.Sprintf(" %+v", s.String())
-}
-
 type Jsx struct {
 	vm *goja.Runtime
 	tr *Transformer
 
-	// md5 => body
+	// cache transform result, md5 => body
 	transformCache map[[16]byte][]byte
 
-	lock sync.Mutex
+	// goja is not goroutine-safe
+	lock     sync.Mutex
+	sourceFs fs.FS
 }
 
-func NewJsx() (*Jsx, error) {
+type StdFileSystem struct {
+}
+
+func (f StdFileSystem) Open(name string) (fs.File, error) {
+	return os.Open(name)
+}
+
+type Option interface {
+	apply(jsx *Jsx)
+}
+
+type OptionFunc func(jsx *Jsx)
+
+func (o OptionFunc) apply(jsx *Jsx) {
+	o(jsx)
+}
+
+func WithFS(f fs.FS) Option {
+	return OptionFunc(func(jsx *Jsx) {
+		jsx.sourceFs = f
+	})
+}
+
+func NewJsx(ops ...Option) (*Jsx, error) {
 	vm := goja.New()
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 
@@ -160,12 +175,16 @@ func NewJsx() (*Jsx, error) {
 		tr:             transformer,
 		lock:           sync.Mutex{},
 		transformCache: map[[16]byte][]byte{},
+		sourceFs:       StdFileSystem{},
 	}
-	j.Refresh()
+	for _, o := range ops {
+		o.apply(j)
+	}
+	j.reload()
 	return j, nil
 }
 
-func (x *Jsx) Refresh() {
+func (j *Jsx) reload() {
 	// 使用 transformer 预编译 src 的文件，能加快速度
 
 	// 当文件更改时，可以新 new registry 来拿到最新的文件
@@ -176,28 +195,29 @@ func (x *Jsx) Refresh() {
 		fmt.Printf("load: %v\n", path)
 		if strings.Contains(path, "node_modules/react/jsx-runtime") {
 			fileBody = js.Jsx
+			filePath = "builtin"
 		} else {
-			filePath = filepath.Join(path + ".jsx")
-			bs, err := os.ReadFile(filePath)
+			filePath = path + ".jsx"
+			bs, err := fs.ReadFile(j.sourceFs, filePath)
 			if err != nil {
 				return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
 			}
 			fileBody = bs
 		}
 		m5 := md5.Sum(fileBody)
-		if x, ok := x.transformCache[m5]; ok {
+		if x, ok := j.transformCache[m5]; ok {
 			return x, nil
 		}
-		abs, _ := filepath.Abs(filePath)
-		s, err := x.tr.transform(abs, string(fileBody))
+
+		s, err := j.tr.transform(filePath, string(fileBody))
 		if err != nil {
 			return nil, err
 		}
-		x.transformCache[m5] = []byte(s)
+		j.transformCache[m5] = []byte(s)
 		return []byte(s), nil
 	})
-	registry.Enable(x.vm)
-	console.Enable(x.vm)
+	registry.Enable(j.vm)
+	console.Enable(j.vm)
 }
 
 //type VDom struct {
