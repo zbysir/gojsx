@@ -7,6 +7,54 @@ Jsx 优势：
 - 实际上就是 js 代码，它是图灵完备的。
 - 和 js 生态行为一致，不用学习更多语法。
 
+## 例子
+```jsx
+import Form from "./Form";
+
+export default function App(props) {
+  return <div className="bg-red-50 border-black">
+    a /2
+    <Form className="red block" style={{padding: '1px'}}> f {props.a ? (<>
+      <li>a</li>
+    </>) : 'b'}</Form>
+  </div>
+}
+```
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body>
+<main></main>
+</body>
+</html>
+```
+
+```go
+func TestJs(t *testing.T) {
+	j, err := NewJsx()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := j.Mount(string(indexHtml), MountEndpoint{
+		Endpoint:  "<main></main>",
+		Component: "./test/App",
+		Props:     map[string]interface{}{"a": 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%+v", s)
+}
+```
+
+
 ## 实现原理
 由于 Jsx 实际上就是 js 代码，如果要渲染 jsx，则需要在 Golang 中运行 js 代码，感谢伟大的 goja 库。
 
