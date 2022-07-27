@@ -3,45 +3,57 @@ package ticktick
 import (
 	"crypto/md5"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/console"
 	"github.com/dop251/goja_nodejs/require"
 	"github.com/zbysir/gojsx/internal/js"
+	"html/template"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Transformer 负责将高级语法（包括 jsx，ts）转为 goja 能运行的 ES5.1
 type Transformer struct {
-	vm *goja.Runtime
+	p sync.Pool
+	c chan struct{}
 }
 
 func NewTransformer() (*Transformer, error) {
-	vm := goja.New()
-
-	require.NewRegistry().Enable(vm)
-	console.Enable(vm)
-
-	_, err := vm.RunScript("babel", js.Babel)
-	if err != nil {
-		return nil, err
-	}
 	return &Transformer{
-		vm: vm,
+		p: sync.Pool{New: func() any {
+			vm := goja.New()
+
+			require.NewRegistry().Enable(vm)
+			console.Enable(vm)
+
+			_, err := vm.RunScript("babel", js.Babel)
+			if err != nil {
+				panic(err)
+			}
+			return vm
+		}},
+		c: make(chan struct{}, 20),
 	}, nil
 }
 
-func (t *Transformer) transform(filePath string, c string) (string, error) {
-	t.vm.Set("code", c)
-	_, name := filepath.Split(filePath)
-	t.vm.Set("filepath", filePath)
-	t.vm.Set("filename", name)
+func (t *Transformer) transform(filePath string, code []byte) ([]byte, error) {
+	// 并行
+	t.c <- struct{}{}
+	defer func() { <-t.c }()
+	vm := t.p.Get().(*goja.Runtime)
+	defer t.p.Put(vm)
 
-	v, err := t.vm.RunString(fmt.Sprintf(`Babel.transform(code, { presets: ["react","es2015"], sourceMaps: 'inline', sourceFileName: filename, filename: filepath, plugins: [
+	_, name := filepath.Split(filePath)
+	vm.Set("filepath", filePath)
+	vm.Set("filename", name)
+
+	v, err := vm.RunString(fmt.Sprintf(`Babel.transform('%s', { presets: ["react","es2015"], sourceMaps: 'inline', sourceFileName: filename, filename: filepath, plugins: [
     [
       "transform-react-jsx",
       {
@@ -54,15 +66,15 @@ func (t *Transformer) transform(filePath string, c string) (string, error) {
 			"isTSX": true,
 		}
 	]
-  ] }).code`))
+  ] }).code`, template.JSEscapeString(string(code))))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return v.String(), nil
+	return []byte(v.String()), nil
 }
 
-func (j *Jsx) RunJs(fileName string, src string, transform bool) (v goja.Value, err error) {
+func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, err error) {
 	if transform {
 		src, err = j.tr.transform(fileName, src)
 		if err != nil {
@@ -71,7 +83,7 @@ func (j *Jsx) RunJs(fileName string, src string, transform bool) (v goja.Value, 
 		//fmt.Printf("comp: %v %v\n", fileName, c)
 	}
 
-	v, err = j.vm.RunString(src)
+	v, err = j.vm.RunString(string(src))
 	return v, err
 }
 
@@ -97,7 +109,7 @@ func (j *Jsx) Render(component string, props interface{}) (n string, err error) 
 	if err != nil {
 		return "", err
 	}
-	res, err := j.RunJs(component, fmt.Sprintf(`require("%v").default(props)`, component), false)
+	res, err := j.RunJs(component, []byte(fmt.Sprintf(`require("%v").default(props)`, component)), false)
 	if err != nil {
 		return "", err
 	}
@@ -107,23 +119,9 @@ func (j *Jsx) Render(component string, props interface{}) (n string, err error) 
 	if err != nil {
 		return "", err
 	}
-	return vdom.Render(), nil
-}
+	//fmt.Printf("vdom: \n%+v", vdom)
 
-// Mount render component to tpl
-func (j *Jsx) Mount(indexTpl string, es ...MountEndpoint) (h string, err error) {
-	var oldnew []string
-	for _, e := range es {
-		n, err := j.Render(e.Component, e.Props)
-		if err != nil {
-			return "", err
-		}
-		oldnew = append(oldnew, e.Endpoint, n)
-		//fmt.Printf("vdom: \n%+v", vdom)
-	}
-	re := strings.NewReplacer(oldnew...)
-	s := re.Replace(indexTpl)
-	return s, err
+	return vdom.Render(), nil
 }
 
 type Jsx struct {
@@ -180,6 +178,12 @@ func NewJsx(ops ...Option) (*Jsx, error) {
 	for _, o := range ops {
 		o.apply(j)
 	}
+	vm.Set("process", map[string]interface{}{
+		"env": map[string]interface{}{
+			"NODE_ENV": "production",
+		},
+	})
+
 	j.reload()
 	return j, nil
 }
@@ -190,32 +194,61 @@ func (j *Jsx) reload() {
 	// 当文件更改时，可以新 new registry 来拿到最新的文件
 	registry := require.NewRegistryWithLoader(func(path string) ([]byte, error) {
 		var fileBody []byte
-		var filePath string
+		//var filePath string
+		needTrans := false
+		fmt.Printf("tryload: %v\n", path)
 
-		fmt.Printf("load: %v\n", path)
+		s := time.Now()
 		if strings.Contains(path, "node_modules/react/jsx-runtime") {
 			fileBody = js.Jsx
-			filePath = "builtin"
+			//filePath = path
+			needTrans = true
 		} else {
-			filePath = path + ".jsx"
-			bs, err := fs.ReadFile(j.sourceFs, filePath)
-			if err != nil {
-				return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
+			find := false
+			paths := []string{""}
+			if strings.HasSuffix(path, ".js") {
+				needTrans = true
+				paths = append(paths, ".jsx")
 			}
-			fileBody = bs
+			for _, p := range paths {
+				if p != "" {
+					path = strings.TrimSuffix(path, ".js") + p
+				}
+				//filePath = path + ".jsx"
+				bs, err := fs.ReadFile(j.sourceFs, path)
+				if err != nil {
+					if errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "is a directory") {
+						continue
+					}
+					return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
+				}
+				find = true
+				fileBody = bs
+				break
+			}
+			if !find {
+				return nil, require.ModuleFileDoesNotExistError
+			}
 		}
-		m5 := md5.Sum(fileBody)
-		if x, ok := j.transformCache[m5]; ok {
-			return x, nil
-		}
+		fmt.Printf("load: %v", path)
+		var err error
+		if needTrans {
+			m5 := md5.Sum(fileBody)
+			if x, ok := j.transformCache[m5]; ok {
+				return x, nil
+			}
 
-		s, err := j.tr.transform(filePath, string(fileBody))
-		if err != nil {
-			return nil, err
+			fileBody, err = j.tr.transform(path, fileBody)
+			if err != nil {
+				return nil, err
+			}
+			j.transformCache[m5] = fileBody
 		}
-		j.transformCache[m5] = []byte(s)
-		return []byte(s), nil
+		fmt.Printf(" %v\n", time.Now().Sub(s))
+
+		return fileBody, nil
 	})
+	//registry := require.NewRegistry()
 	registry.Enable(j.vm)
 	console.Enable(j.vm)
 }
@@ -236,9 +269,9 @@ func (v VDom) RenderAttributes(s *strings.Builder, ps map[string]interface{}) {
 		if k == "children" {
 			continue
 		}
-		if k != "style" && k != "className" && !strings.HasSuffix(k, "data-") {
-			continue
-		}
+		//if k != "style" && k != "className" && !strings.HasSuffix(k, "data-") {
+		//	continue
+		//}
 
 		s.WriteString(" ")
 
@@ -247,27 +280,40 @@ func (v VDom) RenderAttributes(s *strings.Builder, ps map[string]interface{}) {
 		} else {
 			s.WriteString(k)
 		}
-		s.WriteString(`="`)
+		s.WriteString(`=`)
 
 		switch k {
 		case "className":
-			v.renderClassName(s, val, true)
+			if val != nil {
+				s.WriteString(`"`)
+				v.renderClassName(s, val, true)
+				s.WriteString(`"`)
+			}
 		case "style":
+			s.WriteString(`"`)
 			v.renderStyle(s, val)
+			s.WriteString(`"`)
 		default:
 			v.renderAttrValue(s, val)
 		}
-
-		s.WriteString(`"`)
 	}
 }
 
 func (v VDom) renderAttrValue(s *strings.Builder, val interface{}) {
-	bs, err := json.Marshal(val)
-	if err != nil {
-		panic(err)
+	switch t := val.(type) {
+	case string:
+		s.WriteString(`"`)
+		s.WriteString(template.HTMLEscapeString(t))
+		s.WriteString(`"`)
+	default:
+		s.WriteString(`"`)
+		bs, err := json.Marshal(val)
+		if err != nil {
+			panic(err)
+		}
+		s.WriteString(template.HTMLEscapeString(string(bs)))
+		s.WriteString(`"`)
 	}
-	s.Write(bs)
 }
 
 func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst bool) {
@@ -284,6 +330,23 @@ func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst
 	}
 }
 
+func snakeString(s string) string {
+	data := make([]byte, 0, len(s)*3/2)
+	j := false
+	num := len(s)
+	for i := 0; i < num; i++ {
+		d := s[i]
+		if i > 0 && d >= 'A' && d <= 'Z' && j {
+			data = append(data, '-')
+		}
+		if d != '-' {
+			j = true
+		}
+		data = append(data, d)
+	}
+	return strings.ToLower(string(data[:]))
+}
+
 func (v VDom) renderStyle(s *strings.Builder, val interface{}) {
 	isFirst := true
 	switch t := val.(type) {
@@ -294,7 +357,8 @@ func (v VDom) renderStyle(s *strings.Builder, val interface{}) {
 			} else {
 				s.WriteString(" ")
 			}
-			s.WriteString(k)
+			// /node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js hyphenateStyleName
+			s.WriteString(snakeString(k))
 			s.WriteString(":")
 			s.WriteString(" ")
 			s.WriteString(fmt.Sprintf("%v", v))
@@ -359,19 +423,22 @@ func (v VDom) string(indent int) string {
 	}
 	v.printIndent(&s, indent)
 
-	if children != nil {
-		s.WriteString(fmt.Sprintf("<%v>", nodeName))
-		v.printAttr(&s, attr)
-		s.WriteString("\n")
-		v.printChild(&s, indent, children)
+	if v["jsxs"] != nil {
+		s.WriteString(fmt.Sprintf("[%v]", nodeName))
 	} else {
 		s.WriteString(fmt.Sprintf("<%v>", nodeName))
-		v.printAttr(&s, attr)
-		s.WriteString("\n")
+	}
+
+	v.printAttr(&s, attr)
+	s.WriteString("\n")
+
+	if children != nil {
+		v.printChild(&s, indent, children)
 	}
 
 	return s.String()
 }
+
 func (v VDom) renderChildren(s *strings.Builder, c interface{}) {
 	switch t := c.(type) {
 	case string:
@@ -380,18 +447,24 @@ func (v VDom) renderChildren(s *strings.Builder, c interface{}) {
 		s.WriteString(VDom(t).Render())
 	case []interface{}:
 		for _, c := range t {
-			v.renderChildren(s, c)
+			if c != nil {
+				v.renderChildren(s, c)
+			}
 		}
 	default:
 		s.WriteString(fmt.Sprintf("%v", c))
-
 	}
 }
 
 func (v VDom) Render() string {
 	var s strings.Builder
+	v.render(&s)
+	return s.String()
+}
 
-	nodeName := v["nodeName"].(string)
+func (v VDom) render(s *strings.Builder) {
+	i := v["nodeName"]
+	nodeName, _ := i.(string)
 	attr := v["attributes"]
 	var children interface{}
 	if attr != nil {
@@ -400,34 +473,43 @@ func (v VDom) Render() string {
 			children = ci
 		}
 	}
+	// Fragment 只渲染子节点
+	if nodeName == "" && children != nil {
+		v.renderChildren(s, children)
+		return
+	}
 
-	if children != nil {
-		if nodeName != "" {
-			s.WriteString("<")
-			s.WriteString(nodeName)
-			if attr != nil {
-				v.RenderAttributes(&s, attr.(map[string]interface{}))
-			}
-			s.WriteString(">")
-		}
+	selfclose := false
+	switch nodeName {
+	// Omitted close tags
+	case "input":
+		selfclose = true
+	case "area", "base", "br", "col", "embed", "hr", "img", "keygen", "link", "meta", "param", "source", "track", "wbr":
+		selfclose = true
+	case "html":
+		s.WriteString("<!DOCTYPE html>")
+	}
 
-		v.renderChildren(&s, children)
-
-		if nodeName != "" {
-			s.WriteString(fmt.Sprintf("<%v/>", nodeName))
-		}
-	} else {
-		if nodeName != "" {
-			s.WriteString("<")
-			s.WriteString(nodeName)
-			if attr != nil {
-				v.RenderAttributes(&s, attr.(map[string]interface{}))
-			}
-			s.WriteString("><")
-			s.WriteString(nodeName)
-			s.WriteString("/>")
+	if nodeName != "" {
+		s.WriteString("<")
+		s.WriteString(nodeName)
+		if attr != nil {
+			v.RenderAttributes(s, attr.(map[string]interface{}))
 		}
 	}
 
-	return s.String()
+	if selfclose {
+		s.WriteString("/>")
+		// 自闭合标签没有 children
+		return
+	}
+
+	s.WriteString(">")
+	if children != nil {
+		v.renderChildren(s, children)
+	}
+
+	s.WriteString(fmt.Sprintf("</%v>", nodeName))
+
+	return
 }

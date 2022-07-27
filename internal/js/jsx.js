@@ -32,7 +32,12 @@ export function jsx(nodeName, attributes) {
   }
 }
 
-export let jsxs = jsx
+export function jsxs(nodeName, attributes) {
+  // console.log('jsxs', nodeName, JSON.stringify(attributes))
+  let x = jsx(nodeName, attributes)
+  x.jsxs = true
+  return x
+}
 
 export function Fragment(args) {
   return {

@@ -9,9 +9,6 @@ import (
 	"time"
 )
 
-//go:embed test/index.html
-var indexHtml []byte
-
 //go:embed test
 var srcfs embed.FS
 
@@ -22,11 +19,7 @@ func TestJs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := j.Mount(string(indexHtml), MountEndpoint{
-		Endpoint:  "<main></main>",
-		Component: "./test/App",
-		Props:     map[string]interface{}{"a": 1},
-	})
+	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,11 +36,8 @@ func TestHttp(t *testing.T) {
 	http.ListenAndServe(":8081", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		j.reload()
 		ti := time.Now()
-		s, err := j.Mount(string(indexHtml), MountEndpoint{
-			Endpoint:  "<main></main>",
-			Component: "./test/App",
-			Props:     map[string]interface{}{"a": 1},
-		})
+		s, err := j.Render("./test/Index",
+			map[string]interface{}{"a": 1})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,11 +58,7 @@ func TestP(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_, err := j.Mount(string(indexHtml), MountEndpoint{
-				Endpoint:  "<main></main>",
-				Component: "./test/App",
-				Props:     map[string]interface{}{"a": 1},
-			})
+			_, err := j.Render("./test/App", map[string]interface{}{"a": 1})
 			if err != nil {
 				t.Fatal(err)
 			}
