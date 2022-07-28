@@ -13,8 +13,7 @@ import (
 var srcfs embed.FS
 
 func TestJs(t *testing.T) {
-	j, err := NewJsx(WithFS(srcfs), WithSourceCache(NewFileCache("./.cache")))
-	//j, err := NewJsx()
+	j, err := NewJsx(WithFS(srcfs), WithSourceCache(NewFileCache("./.cache")), WithDebug(true))
 	if err != nil {
 		t.Fatal(err)
 	}

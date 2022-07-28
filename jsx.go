@@ -230,9 +230,19 @@ func (j *Jsx) Render(component string, props interface{}) (n string, err error) 
 	return vdom.Render(), nil
 }
 
+func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
+	j.registry.RegisterNativeModule(name, func(runtime *goja.Runtime, module *goja.Object) {
+		o := module.Get("exports").(*goja.Object)
+		for k, v := range obj {
+			_ = o.Set(k, v)
+		}
+	})
+}
+
 type Jsx struct {
-	vm *goja.Runtime
-	tr *Transformer
+	vm       *goja.Runtime
+	registry *require.Registry
+	tr       *Transformer
 
 	// goja is not goroutine-safe
 	lock     sync.Mutex
@@ -373,8 +383,8 @@ func (j *Jsx) reload() {
 
 		return fileBody, nil
 	})
-	//registry := require.NewRegistry()
 	registry.Enable(j.vm)
+	j.registry = registry
 	console.Enable(j.vm)
 }
 
