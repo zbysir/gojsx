@@ -297,7 +297,7 @@ func NewJsx(ops ...Option) (*Jsx, error) {
 		tr:       transformer,
 		lock:     sync.Mutex{},
 		sourceFs: op.sourceFs,
-		debug:    false,
+		debug:    op.debug,
 	}
 
 	vm.Set("process", map[string]interface{}{
@@ -329,17 +329,18 @@ func (j *Jsx) reload() {
 			needTrans = true
 		} else {
 			find := false
-			paths := []string{""}
+			trySuffix := []string{""}
 			if strings.HasSuffix(path, ".js") {
 				needTrans = true
-				paths = append(paths, ".jsx")
+				trySuffix = append(trySuffix, ".jsx")
+				trySuffix = append(trySuffix, ".tsx")
 			}
-			for _, p := range paths {
+			tryPath := path
+			for _, p := range trySuffix {
 				if p != "" {
-					path = strings.TrimSuffix(path, ".js") + p
+					tryPath = strings.TrimSuffix(path, ".js") + p
 				}
-				//filePath = path + ".jsx"
-				bs, err := fs.ReadFile(j.sourceFs, path)
+				bs, err := fs.ReadFile(j.sourceFs, tryPath)
 				if err != nil {
 					if errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "is a directory") {
 						continue
@@ -347,6 +348,7 @@ func (j *Jsx) reload() {
 					return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
 				}
 				find = true
+				path = tryPath
 				fileBody = bs
 				break
 			}

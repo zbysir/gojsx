@@ -27,25 +27,62 @@ func TestJs(t *testing.T) {
 	t.Logf("%+v", s)
 }
 
+//go:embed test/blog/tailwind.css
+var tailwind []byte
+
 func TestHttp(t *testing.T) {
-	j, err := NewJsx(WithSourceCache(NewFileCache("./.cache")))
+	j, err := NewJsx(WithDebug(true), WithSourceCache(NewFileCache("./.cache")))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	err = http.ListenAndServe(":8082", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+
 		j.reload()
+
+		pageData := map[string]interface{}{}
+		page := ""
+		switch request.URL.Path {
+		case "/tailwind.css":
+			writer.Header().Set("Content-Type", "text/css")
+			writer.Write(tailwind)
+			return
+		case "/", "":
+			page = "home"
+			pageData = map[string]interface{}{
+				"blogs": []interface{}{
+					map[string]interface{}{
+						"name": "如何渲染 jsx",
+					},
+					map[string]interface{}{
+						"name": "关于我",
+					},
+				},
+			}
+		case "/detail":
+			page = "blog-detail"
+			pageData = map[string]interface{}{
+				"title": "如何渲染 jsx",
+				"html":  "html",
+			}
+		default:
+			page = request.URL.Path
+		}
 		ti := time.Now()
-		s, err := j.Render("./test/Index",
+		s, err := j.Render("./test/blog/Index",
 			map[string]interface{}{
-				"a":     1,
-				"title": "Jsx",
+				"a":        1,
+				"title":    "bysir' blog",
+				"me":       "bysir",
+				"page":     page,
+				"pageData": pageData,
+				"time":     "",
 			})
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Logf("t: %v", time.Now().Sub(ti))
-
+		s += time.Now().Sub(ti).String()
 		writer.Write([]byte(s))
 	}))
 	if err != nil {
