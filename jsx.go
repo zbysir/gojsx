@@ -1,7 +1,9 @@
-package ticktick
+package jsx
 
 import (
+	"bytes"
 	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,11 +22,86 @@ import (
 
 // Transformer 负责将高级语法（包括 jsx，ts）转为 goja 能运行的 ES5.1
 type Transformer struct {
-	p sync.Pool
-	c chan struct{}
+	p     sync.Pool
+	c     chan struct{}
+	cache SourceCache
 }
 
-func NewTransformer() (*Transformer, error) {
+type SourceCache interface {
+	Get(key string) (f *Source, exist bool, err error)
+	Set(key string, f *Source) (err error)
+}
+
+type Source struct {
+	SrcMd5    string
+	Body      []byte
+	CreatedAt string
+}
+
+type FileCache struct {
+	cachePath string
+}
+
+func NewFileCache(cachePath string) *FileCache {
+	return &FileCache{cachePath: cachePath}
+}
+
+// Get
+// TODO lock on one file
+func (fc *FileCache) Get(key string) (f *Source, exist bool, err error) {
+	cacheFilePath := filepath.Join(fc.cachePath, key)
+
+	cbs, err := os.ReadFile(cacheFilePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
+		}
+		return
+	}
+	if err == nil {
+		x := bytes.IndexByte(cbs, '\n')
+		if x == -1 {
+			return
+		}
+		f = &Source{
+			SrcMd5:    string(cbs[:x]),
+			Body:      cbs[x+1:],
+			CreatedAt: "",
+		}
+		exist = true
+		return
+	}
+
+	return
+}
+
+func (fc *FileCache) Set(key string, f *Source) (err error) {
+	_ = os.MkdirAll(fc.cachePath, os.ModePerm)
+
+	cacheFilePath := filepath.Join(fc.cachePath, key)
+	fi, err := os.OpenFile(cacheFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0664)
+	defer fi.Close()
+	if err != nil {
+		return fmt.Errorf("os.OpenFile error: %w", err)
+	}
+
+	_, err = fi.WriteString(f.SrcMd5)
+	if err != nil {
+		return err
+	}
+	_, err = fi.Write([]byte("\n"))
+	if err != nil {
+		return err
+	}
+	_, err = fi.Write(f.Body)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func NewTransformer(fileCache SourceCache) (*Transformer, error) {
 	return &Transformer{
 		p: sync.Pool{New: func() any {
 			vm := goja.New()
@@ -38,14 +115,34 @@ func NewTransformer() (*Transformer, error) {
 			}
 			return vm
 		}},
-		c: make(chan struct{}, 20),
+		c:     make(chan struct{}, 20),
+		cache: fileCache,
 	}, nil
 }
 
-func (t *Transformer) transform(filePath string, code []byte) ([]byte, error) {
+func mD5(v []byte) string {
+	m := md5.New()
+	m.Write(v)
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+func (t *Transformer) transform(filePath string, code []byte) ([]byte, bool, error) {
 	// 并行
 	t.c <- struct{}{}
 	defer func() { <-t.c }()
+
+	cacheKey := mD5([]byte(filePath))
+	srcMd5 := mD5(code)
+	if t.cache != nil {
+		fi, exist, err := t.cache.Get(cacheKey)
+		if err != nil {
+			return nil, false, err
+		}
+		if exist && fi.SrcMd5 == srcMd5 {
+			return fi.Body, true, nil
+		}
+	}
+
 	vm := t.p.Get().(*goja.Runtime)
 	defer t.p.Put(vm)
 
@@ -68,26 +165,35 @@ func (t *Transformer) transform(filePath string, code []byte) ([]byte, error) {
 	]
   ] }).code`, template.JSEscapeString(string(code))))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-
-	return []byte(v.String()), nil
+	bs := []byte(v.String())
+	if t.cache != nil {
+		err = t.cache.Set(cacheKey, &Source{
+			SrcMd5:    srcMd5,
+			Body:      bs,
+			CreatedAt: "",
+		})
+		if err != nil {
+			return nil, false, nil
+		}
+	}
+	return bs, false, nil
 }
 
 func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, err error) {
 	if transform {
-		src, err = j.tr.transform(fileName, src)
+		src, _, err = j.tr.transform(fileName, src)
 		if err != nil {
 			return nil, err
 		}
-		//fmt.Printf("comp: %v %v\n", fileName, c)
 	}
 
 	v, err = j.vm.RunString(string(src))
 	return v, err
 }
 
-// Compile 预编译多个文件
+// Compile 预编译多个文件，生成 cache 文件
 func (j *Jsx) Compile(path string) (err error) {
 
 	//j.tr.transform(path)
@@ -128,12 +234,11 @@ type Jsx struct {
 	vm *goja.Runtime
 	tr *Transformer
 
-	// cache transform result, md5 => body
-	transformCache map[[16]byte][]byte
-
 	// goja is not goroutine-safe
 	lock     sync.Mutex
 	sourceFs fs.FS
+
+	debug bool
 }
 
 type StdFileSystem struct {
@@ -143,41 +248,58 @@ func (f StdFileSystem) Open(name string) (fs.File, error) {
 	return os.Open(name)
 }
 
-type Option interface {
-	apply(jsx *Jsx)
+type option struct {
+	sourceCache SourceCache
+	sourceFs    fs.FS
+	debug       bool // enable to get more log
 }
 
-type OptionFunc func(jsx *Jsx)
-
-func (o OptionFunc) apply(jsx *Jsx) {
-	o(jsx)
-}
+type Option func(jsx *option)
 
 func WithFS(f fs.FS) Option {
-	return OptionFunc(func(jsx *Jsx) {
+	return func(jsx *option) {
 		jsx.sourceFs = f
-	})
+	}
+}
+
+func WithDebug(d bool) Option {
+	return func(jsx *option) {
+		jsx.debug = d
+	}
+}
+
+func WithSourceCache(ss SourceCache) Option {
+	return func(jsx *option) {
+		jsx.sourceCache = ss
+	}
 }
 
 func NewJsx(ops ...Option) (*Jsx, error) {
+	var op option
+	for _, o := range ops {
+		o(&op)
+	}
+
 	vm := goja.New()
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 
-	transformer, err := NewTransformer()
+	transformer, err := NewTransformer(op.sourceCache)
 	if err != nil {
 		return nil, err
 	}
 
+	if op.sourceFs == nil {
+		op.sourceFs = StdFileSystem{}
+	}
+
 	j := &Jsx{
-		vm:             vm,
-		tr:             transformer,
-		lock:           sync.Mutex{},
-		transformCache: map[[16]byte][]byte{},
-		sourceFs:       StdFileSystem{},
+		vm:       vm,
+		tr:       transformer,
+		lock:     sync.Mutex{},
+		sourceFs: op.sourceFs,
+		debug:    false,
 	}
-	for _, o := range ops {
-		o.apply(j)
-	}
+
 	vm.Set("process", map[string]interface{}{
 		"env": map[string]interface{}{
 			"NODE_ENV": "production",
@@ -196,7 +318,9 @@ func (j *Jsx) reload() {
 		var fileBody []byte
 		//var filePath string
 		needTrans := false
-		fmt.Printf("tryload: %v\n", path)
+		if j.debug {
+			fmt.Printf("tryload: %v\n", path)
+		}
 
 		s := time.Now()
 		if strings.Contains(path, "node_modules/react/jsx-runtime") {
@@ -232,17 +356,16 @@ func (j *Jsx) reload() {
 		}
 		fmt.Printf("load: %v", path)
 		var err error
+		var cached bool
 		if needTrans {
-			m5 := md5.Sum(fileBody)
-			if x, ok := j.transformCache[m5]; ok {
-				return x, nil
-			}
-
-			fileBody, err = j.tr.transform(path, fileBody)
+			fmt.Printf(" transform")
+			fileBody, cached, err = j.tr.transform(path, fileBody)
 			if err != nil {
 				return nil, err
 			}
-			j.transformCache[m5] = fileBody
+			if cached {
+				fmt.Printf(" cached")
+			}
 		}
 		fmt.Printf(" %v\n", time.Now().Sub(s))
 

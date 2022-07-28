@@ -1,4 +1,4 @@
-package ticktick
+package jsx
 
 import (
 	"embed"
@@ -13,7 +13,7 @@ import (
 var srcfs embed.FS
 
 func TestJs(t *testing.T) {
-	j, err := NewJsx(WithFS(srcfs))
+	j, err := NewJsx(WithFS(srcfs), WithSourceCache(NewFileCache("./.cache")))
 	//j, err := NewJsx()
 	if err != nil {
 		t.Fatal(err)
@@ -28,16 +28,19 @@ func TestJs(t *testing.T) {
 }
 
 func TestHttp(t *testing.T) {
-	j, err := NewJsx()
+	j, err := NewJsx(WithSourceCache(NewFileCache("./.cache")))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	http.ListenAndServe(":8081", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	err = http.ListenAndServe(":8082", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		j.reload()
 		ti := time.Now()
 		s, err := j.Render("./test/Index",
-			map[string]interface{}{"a": 1})
+			map[string]interface{}{
+				"a":     1,
+				"title": "Jsx",
+			})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -45,8 +48,30 @@ func TestHttp(t *testing.T) {
 
 		writer.Write([]byte(s))
 	}))
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
+// cpu: Intel(R) Core(TM) i5-8279U CPU @ 2.40GHz
+// 116,239 ns/op
+func BenchmarkJsx(b *testing.B) {
+	j, err := NewJsx()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// render first to enable cache
+	_, err = j.Render("./test/Index", map[string]interface{}{"a": 1})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := j.Render("./test/Index", map[string]interface{}{"a": 1})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 func TestP(t *testing.T) {
 	j, err := NewJsx()
 	if err != nil {
@@ -58,7 +83,7 @@ func TestP(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_, err := j.Render("./test/App", map[string]interface{}{"a": 1})
+			_, err := j.Render("./test/Index", map[string]interface{}{"a": 1})
 			if err != nil {
 				t.Fatal(err)
 			}
