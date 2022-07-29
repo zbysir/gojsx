@@ -168,6 +168,7 @@ func (t *Transformer) transform(filePath string, code []byte) ([]byte, bool, err
 		return nil, false, err
 	}
 	bs := []byte(v.String())
+
 	if t.cache != nil {
 		err = t.cache.Set(cacheKey, &Source{
 			SrcMd5:    srcMd5,
@@ -190,6 +191,12 @@ func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, 
 	}
 
 	v, err = j.vm.RunString(string(src))
+	if err != nil {
+		// fix Invalid module message
+		if strings.Contains(err.Error(), "Invalid module") {
+			err = errors.New(strings.ReplaceAll(err.Error(), "Invalid module", fmt.Sprintf("Invalid module '%v'", j.lastLoadModule)))
+		}
+	}
 	return v, err
 }
 
@@ -249,6 +256,8 @@ type Jsx struct {
 	sourceFs fs.FS
 
 	debug bool
+
+	lastLoadModule string
 }
 
 type StdFileSystem struct {
@@ -331,6 +340,7 @@ func (j *Jsx) reload() {
 		if j.debug {
 			fmt.Printf("tryload: %v\n", path)
 		}
+		j.lastLoadModule = path
 
 		s := time.Now()
 		if strings.Contains(path, "node_modules/react/jsx-runtime") {
@@ -344,6 +354,9 @@ func (j *Jsx) reload() {
 				needTrans = true
 				trySuffix = append(trySuffix, ".jsx")
 				trySuffix = append(trySuffix, ".tsx")
+				trySuffix = append(trySuffix, ".ts")
+			} else if strings.HasSuffix(path, ".ts") {
+				needTrans = true
 			}
 			tryPath := path
 			for _, p := range trySuffix {
