@@ -238,18 +238,21 @@ func (j *Jsx) Render(component string, props interface{}) (n string, err error) 
 }
 
 func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
-	j.registry.RegisterNativeModule(name, func(runtime *goja.Runtime, module *goja.Object) {
+	if j.module == nil {
+		j.module = map[string]func(runtime *goja.Runtime, module *goja.Object){}
+	}
+
+	j.module[name] = func(runtime *goja.Runtime, module *goja.Object) {
 		o := module.Get("exports").(*goja.Object)
 		for k, v := range obj {
 			_ = o.Set(k, v)
 		}
-	})
+	}
 }
 
 type Jsx struct {
-	vm       *goja.Runtime
-	registry *require.Registry
-	tr       *Transformer
+	vm *goja.Runtime
+	tr *Transformer
 
 	// goja is not goroutine-safe
 	lock     sync.Mutex
@@ -258,6 +261,9 @@ type Jsx struct {
 	debug bool
 
 	lastLoadModule string
+
+	// 额外注入的 module
+	module map[string]func(runtime *goja.Runtime, module *goja.Object)
 }
 
 type StdFileSystem struct {
@@ -396,8 +402,13 @@ func (j *Jsx) RefreshRegistry() {
 		return fileBody, nil
 	})
 	registry.Enable(j.vm)
-	j.registry = registry
 	console.Enable(j.vm)
+
+	if j.module != nil {
+		for k, obj := range j.module {
+			registry.RegisterNativeModule(k, obj)
+		}
+	}
 }
 
 //type VDom struct {
