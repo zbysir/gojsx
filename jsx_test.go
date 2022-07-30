@@ -37,7 +37,7 @@ func TestHttp(t *testing.T) {
 
 	err = http.ListenAndServe(":8082", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 
-		j.reload()
+		j.RefreshRegistry()
 
 		pageData := map[string]interface{}{}
 		page := ""

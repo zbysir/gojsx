@@ -325,14 +325,13 @@ func NewJsx(ops ...Option) (*Jsx, error) {
 		},
 	})
 
-	j.reload()
+	j.RefreshRegistry()
 	return j, nil
 }
 
-func (j *Jsx) reload() {
-	// 使用 transformer 预编译 src 的文件，能加快速度
-
-	// 当文件更改时，可以新 new registry 来拿到最新的文件
+// RefreshRegistry will load module from file instead of cache
+// 当文件更改时，可以调用 RefreshRegistry 来拿到最新的文件
+func (j *Jsx) RefreshRegistry() {
 	registry := require.NewRegistryWithLoader(func(path string) ([]byte, error) {
 		var fileBody []byte
 		//var filePath string
@@ -408,7 +407,7 @@ func (j *Jsx) reload() {
 
 type VDom map[string]interface{}
 
-func (v VDom) RenderAttributes(s *strings.Builder, ps map[string]interface{}) {
+func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 	if len(ps) == 0 {
 		return
 	}
@@ -642,7 +641,7 @@ func (v VDom) render(s *strings.Builder) {
 		s.WriteString("<")
 		s.WriteString(nodeName)
 		if attr != nil {
-			v.RenderAttributes(s, attr.(map[string]interface{}))
+			v.renderAttributes(s, attr.(map[string]interface{}))
 		}
 	}
 
