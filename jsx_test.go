@@ -12,8 +12,13 @@ import (
 //go:embed test
 var srcfs embed.FS
 
-func TestJs(t *testing.T) {
-	j, err := NewJsx(WithFS(srcfs), WithSourceCache(NewFileCache("./.cache")), WithDebug(true))
+func TestJsx(t *testing.T) {
+	j, err := NewJsx(Option{
+		SourceCache: nil,
+		SourceFs:    srcfs,
+		Debug:       true,
+		//Transformer: NewBabelTransformer(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,13 +35,16 @@ func TestJs(t *testing.T) {
 var tailwind []byte
 
 func TestHttp(t *testing.T) {
-	j, err := NewJsx(WithDebug(true), WithSourceCache(NewFileCache("./.cache")))
+	j, err := NewJsx(Option{
+		SourceCache: NewFileCache("./.cache"),
+		Debug:       true,
+		Transformer: NewEsBuildTransform(true),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	err = http.ListenAndServe(":8082", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-
 		j.RefreshRegistry()
 
 		pageData := map[string]interface{}{}
@@ -90,9 +98,11 @@ func TestHttp(t *testing.T) {
 }
 
 // cpu: Intel(R) Core(TM) i5-8279U CPU @ 2.40GHz
-// 116,239 ns/op
+// 71415 ns/op
 func BenchmarkJsx(b *testing.B) {
-	j, err := NewJsx()
+	j, err := NewJsx(Option{
+		Transformer: NewBabelTransformer(),
+	})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -108,8 +118,27 @@ func BenchmarkJsx(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkJsxEsBuild(b *testing.B) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// render first to enable cache
+	_, err = j.Render("./test/Index", map[string]interface{}{"a": 1})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := j.Render("./test/Index", map[string]interface{}{"a": 1})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestP(t *testing.T) {
-	j, err := NewJsx()
+	j, err := NewJsx(Option{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,6 @@
 import Form from "./Form";
 
 export default function App(props) {
-  console.log('app')
   return <div className="bg-red-50 border-black">
     a /2
     {

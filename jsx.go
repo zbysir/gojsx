@@ -10,6 +10,7 @@ import (
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/console"
 	"github.com/dop251/goja_nodejs/require"
+	"github.com/evanw/esbuild/pkg/api"
 	"github.com/zbysir/gojsx/internal/js"
 	"html/template"
 	"io/fs"
@@ -20,8 +21,42 @@ import (
 	"time"
 )
 
-// Transformer 负责将高级语法（包括 jsx，ts）转为 goja 能运行的 ES5.1
-type Transformer struct {
+type Transformer interface {
+	Transform(filePath string, code []byte) (out []byte, err error)
+}
+
+type EsBuildTransform struct {
+	minify bool
+}
+
+func NewEsBuildTransform(minify bool) *EsBuildTransform {
+	return &EsBuildTransform{minify: minify}
+}
+
+func (e EsBuildTransform) Transform(filePath string, code []byte) (out []byte, err error) {
+	result := api.Transform(string(code), api.TransformOptions{
+		Loader:            api.LoaderTSX,
+		Target:            api.ESNext,
+		JSXMode:           api.JSXModeAutomatic,
+		Format:            api.FormatCommonJS,
+		Platform:          api.PlatformNode,
+		Sourcemap:         api.SourceMapInline,
+		MinifyIdentifiers: e.minify,
+		MinifySyntax:      e.minify,
+		MinifyWhitespace:  e.minify,
+		Sourcefile:        filePath,
+	})
+
+	if len(result.Errors) != 0 {
+		e := result.Errors[0]
+		err = fmt.Errorf("%v: (%v:%v) \n%v\n%v^ %v\n", e.Location.File, e.Location.Line, e.Location.Column, e.Location.LineText, strings.Repeat(" ", e.Location.Column), e.Text)
+		return
+	}
+	return result.Code, nil
+}
+
+// BabelTransformer 负责将高级语法（包括 jsx，ts）转为 goja 能运行的 ES5.1
+type BabelTransformer struct {
 	p     sync.Pool
 	c     chan struct{}
 	cache SourceCache
@@ -101,8 +136,8 @@ func (fc *FileCache) Set(key string, f *Source) (err error) {
 	return
 }
 
-func NewTransformer(fileCache SourceCache) (*Transformer, error) {
-	return &Transformer{
+func NewBabelTransformer() *BabelTransformer {
+	return &BabelTransformer{
 		p: sync.Pool{New: func() any {
 			vm := goja.New()
 
@@ -115,9 +150,8 @@ func NewTransformer(fileCache SourceCache) (*Transformer, error) {
 			}
 			return vm
 		}},
-		c:     make(chan struct{}, 20),
-		cache: fileCache,
-	}, nil
+		c: make(chan struct{}, 20),
+	}
 }
 
 func mD5(v []byte) string {
@@ -126,22 +160,10 @@ func mD5(v []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-func (t *Transformer) transform(filePath string, code []byte) ([]byte, bool, error) {
+func (t *BabelTransformer) Transform(filePath string, code []byte) ([]byte, error) {
 	// 并行
 	t.c <- struct{}{}
 	defer func() { <-t.c }()
-
-	cacheKey := mD5([]byte(filePath))
-	srcMd5 := mD5(code)
-	if t.cache != nil {
-		fi, exist, err := t.cache.Get(cacheKey)
-		if err != nil {
-			return nil, false, err
-		}
-		if exist && fi.SrcMd5 == srcMd5 {
-			return fi.Body, true, nil
-		}
-	}
 
 	vm := t.p.Get().(*goja.Runtime)
 	defer t.p.Put(vm)
@@ -165,26 +187,15 @@ func (t *Transformer) transform(filePath string, code []byte) ([]byte, bool, err
 	]
   ] }).code`, template.JSEscapeString(string(code))))
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	bs := []byte(v.String())
-
-	if t.cache != nil {
-		err = t.cache.Set(cacheKey, &Source{
-			SrcMd5:    srcMd5,
-			Body:      bs,
-			CreatedAt: "",
-		})
-		if err != nil {
-			return nil, false, nil
-		}
-	}
-	return bs, false, nil
+	return bs, nil
 }
 
 func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, err error) {
 	if transform {
-		src, _, err = j.tr.transform(fileName, src)
+		src, err = j.tr.Transform(fileName, src)
 		if err != nil {
 			return nil, err
 		}
@@ -198,13 +209,6 @@ func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, 
 		}
 	}
 	return v, err
-}
-
-// Compile 预编译多个文件，生成 cache 文件
-func (j *Jsx) Compile(path string) (err error) {
-
-	//j.tr.transform(path)
-	return nil
 }
 
 type MountEndpoint struct {
@@ -248,11 +252,13 @@ func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
 			_ = o.Set(k, v)
 		}
 	}
+
+	j.RefreshRegistry()
 }
 
 type Jsx struct {
 	vm *goja.Runtime
-	tr *Transformer
+	tr Transformer
 
 	// goja is not goroutine-safe
 	lock     sync.Mutex
@@ -264,6 +270,8 @@ type Jsx struct {
 
 	// 额外注入的 module
 	module map[string]func(runtime *goja.Runtime, module *goja.Object)
+
+	cache SourceCache
 }
 
 type StdFileSystem struct {
@@ -273,56 +281,33 @@ func (f StdFileSystem) Open(name string) (fs.File, error) {
 	return os.Open(name)
 }
 
-type option struct {
-	sourceCache SourceCache
-	sourceFs    fs.FS
-	debug       bool // enable to get more log
+type Option struct {
+	SourceCache SourceCache
+	SourceFs    fs.FS
+	Debug       bool // enable to get more log
+	Transformer Transformer
 }
 
-type Option func(jsx *option)
-
-func WithFS(f fs.FS) Option {
-	return func(jsx *option) {
-		jsx.sourceFs = f
-	}
-}
-
-func WithDebug(d bool) Option {
-	return func(jsx *option) {
-		jsx.debug = d
-	}
-}
-
-func WithSourceCache(ss SourceCache) Option {
-	return func(jsx *option) {
-		jsx.sourceCache = ss
-	}
-}
-
-func NewJsx(ops ...Option) (*Jsx, error) {
-	var op option
-	for _, o := range ops {
-		o(&op)
-	}
-
+func NewJsx(op Option) (*Jsx, error) {
 	vm := goja.New()
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 
-	transformer, err := NewTransformer(op.sourceCache)
-	if err != nil {
-		return nil, err
+	var transformer Transformer = NewEsBuildTransform(true)
+	if op.Transformer != nil {
+		transformer = op.Transformer
 	}
 
-	if op.sourceFs == nil {
-		op.sourceFs = StdFileSystem{}
+	if op.SourceFs == nil {
+		op.SourceFs = StdFileSystem{}
 	}
 
 	j := &Jsx{
 		vm:       vm,
 		tr:       transformer,
 		lock:     sync.Mutex{},
-		sourceFs: op.sourceFs,
-		debug:    op.debug,
+		sourceFs: op.SourceFs,
+		debug:    op.Debug,
+		cache:    op.SourceCache,
 	}
 
 	vm.Set("process", map[string]interface{}{
@@ -335,72 +320,102 @@ func NewJsx(ops ...Option) (*Jsx, error) {
 	return j, nil
 }
 
-// RefreshRegistry will load module from file instead of cache
-// 当文件更改时，可以调用 RefreshRegistry 来拿到最新的文件
-func (j *Jsx) RefreshRegistry() {
-	registry := require.NewRegistryWithLoader(func(path string) ([]byte, error) {
-		var fileBody []byte
-		//var filePath string
-		needTrans := false
-		if j.debug {
-			fmt.Printf("tryload: %v\n", path)
-		}
-		j.lastLoadModule = path
+func (j *Jsx) registryLoader(path string) ([]byte, error) {
+	var fileBody []byte
+	//var filePath string
+	needTrans := false
+	if j.debug {
+		fmt.Printf("tryload: %v\n", path)
+	}
+	j.lastLoadModule = path
 
-		s := time.Now()
-		if strings.Contains(path, "node_modules/react/jsx-runtime") {
-			fileBody = js.Jsx
-			//filePath = path
+	s := time.Now()
+	if strings.Contains(path, "node_modules/react/jsx-runtime") {
+		fileBody = js.JsxRuntime
+		//filePath = path
+		needTrans = true
+	} else {
+		find := false
+		trySuffix := []string{""}
+		if strings.HasSuffix(path, ".js") {
 			needTrans = true
-		} else {
-			find := false
-			trySuffix := []string{""}
-			if strings.HasSuffix(path, ".js") {
-				needTrans = true
-				trySuffix = append(trySuffix, ".jsx")
-				trySuffix = append(trySuffix, ".tsx")
-				trySuffix = append(trySuffix, ".ts")
-			} else if strings.HasSuffix(path, ".ts") {
-				needTrans = true
-			}
-			tryPath := path
-			for _, p := range trySuffix {
-				if p != "" {
-					tryPath = strings.TrimSuffix(path, ".js") + p
-				}
-				bs, err := fs.ReadFile(j.sourceFs, tryPath)
-				if err != nil {
-					if errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "is a directory") {
-						continue
-					}
-					return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
-				}
-				find = true
-				path = tryPath
-				fileBody = bs
-				break
-			}
-			if !find {
-				return nil, require.ModuleFileDoesNotExistError
-			}
+			trySuffix = append(trySuffix, ".jsx")
+			trySuffix = append(trySuffix, ".tsx")
+			trySuffix = append(trySuffix, ".ts")
+		} else if strings.HasSuffix(path, ".ts") {
+			needTrans = true
 		}
-		fmt.Printf("load: %v", path)
-		var err error
+		tryPath := path
+		for _, p := range trySuffix {
+			if p != "" {
+				tryPath = strings.TrimSuffix(path, ".js") + p
+			}
+			bs, err := fs.ReadFile(j.sourceFs, tryPath)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "is a directory") {
+					continue
+				}
+				return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
+			}
+			find = true
+			path = tryPath
+			fileBody = bs
+			break
+		}
+		if !find {
+			return nil, require.ModuleFileDoesNotExistError
+		}
+	}
+
+	fmt.Printf("load: %v", path)
+
+	var err error
+	if needTrans {
+		fmt.Printf(" transform")
+
+		cacheKey := mD5([]byte(path))
+		srcMd5 := mD5(fileBody)
 		var cached bool
-		if needTrans {
-			fmt.Printf(" transform")
-			fileBody, cached, err = j.tr.transform(path, fileBody)
+		if j.cache != nil {
+			fi, exist, err := j.cache.Get(cacheKey)
 			if err != nil {
 				return nil, err
 			}
-			if cached {
-				fmt.Printf(" cached")
+			if exist && fi.SrcMd5 == srcMd5 {
+				cached = true
+				fileBody = fi.Body
 			}
 		}
-		fmt.Printf(" %v\n", time.Now().Sub(s))
 
-		return fileBody, nil
-	})
+		if cached {
+			fmt.Printf(" cached")
+		} else {
+			fileBody, err = j.tr.Transform(path, fileBody)
+			if err != nil {
+				return nil, err
+			}
+
+			if j.cache != nil {
+				err = j.cache.Set(cacheKey, &Source{
+					SrcMd5:    srcMd5,
+					Body:      fileBody,
+					CreatedAt: "",
+				})
+				if err != nil {
+					return nil, nil
+				}
+			}
+		}
+	}
+	fmt.Printf(" %v\n", time.Now().Sub(s))
+
+	return fileBody, nil
+}
+
+// RefreshRegistry will load module from file instead of cache
+// 当文件更改时，可以调用 RefreshRegistry 来拿到最新的文件
+func (j *Jsx) RefreshRegistry() {
+	registry := require.NewRegistryWithLoader(j.registryLoader)
 	registry.Enable(j.vm)
 	console.Enable(j.vm)
 
