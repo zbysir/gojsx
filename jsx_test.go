@@ -3,6 +3,7 @@ package jsx
 import (
 	"embed"
 	_ "embed"
+	"github.com/dop251/goja"
 	"net/http"
 	"sync"
 	"testing"
@@ -17,7 +18,7 @@ func TestJsx(t *testing.T) {
 		SourceCache: nil,
 		SourceFs:    srcfs,
 		Debug:       true,
-		//Transformer: NewBabelTransformer(),
+		Transformer: NewEsBuildTransform(false),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -37,8 +38,10 @@ var tailwind []byte
 func TestHttp(t *testing.T) {
 	j, err := NewJsx(Option{
 		SourceCache: NewFileCache("./.cache"),
+		SourceFs:    nil,
 		Debug:       true,
 		Transformer: NewEsBuildTransform(true),
+		VmMaxTotal:  10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -156,4 +159,18 @@ func TestP(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestArrowFunc(t *testing.T) {
+	v := goja.New()
+	x, err := v.RunString("({a: ()=> 1, b: function(){}})")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	o := x.(*goja.Object)
+
+	// https://github.com/dop251/goja/pull/419
+	t.Logf("b: %T", o.Get("b").Export()) // func(goja.FunctionCall) goja.Value
+	t.Logf("a: %T", o.Get("a").Export()) // got 'map', but expect 'func(goja.FunctionCall) goja.Value'
 }

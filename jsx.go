@@ -14,10 +14,12 @@ import (
 	"github.com/zbysir/gojsx/internal/js"
 	"html/template"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -194,6 +196,16 @@ func (t *BabelTransformer) Transform(filePath string, code []byte) ([]byte, erro
 }
 
 func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, err error) {
+	vm, err := j.getVm()
+	if err != nil {
+		return nil, err
+	}
+	defer j.putVm(vm)
+
+	return j.runJs(vm.vm, fileName, src, transform)
+}
+
+func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform bool) (v goja.Value, err error) {
 	if transform {
 		src, err = j.tr.Transform(fileName, src)
 		if err != nil {
@@ -201,7 +213,7 @@ func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, 
 		}
 	}
 
-	v, err = j.vm.RunString(string(src))
+	v, err = vm.RunString(string(src))
 	if err != nil {
 		// fix Invalid module message
 		if strings.Contains(err.Error(), "Invalid module") {
@@ -217,22 +229,48 @@ type MountEndpoint struct {
 	Props     interface{}
 }
 
+type versionedVm struct {
+	vm      *goja.Runtime
+	version int32
+}
+
+func (j *Jsx) getVm() (*versionedVm, error) {
+	vm, err := j.vmPool.Get()
+	if err != nil {
+		return nil, fmt.Errorf("pool.Get error: %w", err)
+	}
+
+	// pool 元素是协程安全的，不必考虑并发
+	if vm.version != j.version {
+		j.initVm(vm.vm)
+		vm.version = j.version
+	}
+	return vm, nil
+}
+
+func (j *Jsx) putVm(v *versionedVm) error {
+	return j.vmPool.Put(v)
+}
+
 // Render a component to html
 func (j *Jsx) Render(component string, props interface{}) (n string, err error) {
-	j.lock.Lock()
-	defer j.lock.Unlock()
-
-	err = j.vm.Set("props", j.vm.ToValue(props))
+	vm, err := j.getVm()
 	if err != nil {
 		return "", err
 	}
-	res, err := j.RunJs(component, []byte(fmt.Sprintf(`require("%v").default(props)`, component)), false)
+	defer j.putVm(vm)
+
+	err = vm.vm.Set("props", vm.vm.ToValue(props))
+	if err != nil {
+		return "", err
+	}
+	res, err := j.runJs(vm.vm, component, []byte(fmt.Sprintf(`require("%v").default(props)`, component)), false)
 	if err != nil {
 		return "", err
 	}
 
 	vdom := VDom{}
-	err = j.vm.ExportTo(res, &vdom)
+	err = vm.vm.ExportTo(res, &vdom)
 	if err != nil {
 		return "", err
 	}
@@ -257,8 +295,9 @@ func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
 }
 
 type Jsx struct {
-	vm *goja.Runtime
-	tr Transformer
+	//vm *goja.Runtime
+	vmPool *tPool[*versionedVm]
+	tr     Transformer
 
 	// goja is not goroutine-safe
 	lock     sync.Mutex
@@ -272,6 +311,8 @@ type Jsx struct {
 	module map[string]func(runtime *goja.Runtime, module *goja.Object)
 
 	cache SourceCache
+
+	version int32
 }
 
 type StdFileSystem struct {
@@ -286,12 +327,10 @@ type Option struct {
 	SourceFs    fs.FS
 	Debug       bool // enable to get more log
 	Transformer Transformer
+	VmMaxTotal  int
 }
 
 func NewJsx(op Option) (*Jsx, error) {
-	vm := goja.New()
-	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
-
 	var transformer Transformer = NewEsBuildTransform(true)
 	if op.Transformer != nil {
 		transformer = op.Transformer
@@ -301,20 +340,29 @@ func NewJsx(op Option) (*Jsx, error) {
 		op.SourceFs = StdFileSystem{}
 	}
 
+	if op.VmMaxTotal <= 0 {
+		op.VmMaxTotal = 20
+	}
+
 	j := &Jsx{
-		vm:       vm,
+		vmPool: newTPool(op.VmMaxTotal, func() *versionedVm {
+			vm := goja.New()
+			vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+
+			if op.Debug {
+				log.Printf("new vm")
+			}
+			return &versionedVm{
+				vm:      vm,
+				version: -1,
+			}
+		}),
 		tr:       transformer,
 		lock:     sync.Mutex{},
 		sourceFs: op.SourceFs,
 		debug:    op.Debug,
 		cache:    op.SourceCache,
 	}
-
-	vm.Set("process", map[string]interface{}{
-		"env": map[string]interface{}{
-			"NODE_ENV": "production",
-		},
-	})
 
 	j.RefreshRegistry()
 	return j, nil
@@ -415,9 +463,16 @@ func (j *Jsx) registryLoader(path string) ([]byte, error) {
 // RefreshRegistry will load module from file instead of cache
 // 当文件更改时，可以调用 RefreshRegistry 来拿到最新的文件
 func (j *Jsx) RefreshRegistry() {
+	atomic.AddInt32(&j.version, 1)
+}
+
+func (j *Jsx) initVm(vm *goja.Runtime) {
+	if j.debug {
+		log.Printf("initVm")
+	}
 	registry := require.NewRegistryWithLoader(j.registryLoader)
-	registry.Enable(j.vm)
-	console.Enable(j.vm)
+	registry.Enable(vm)
+	console.Enable(vm)
 
 	if j.module != nil {
 		for k, obj := range j.module {
