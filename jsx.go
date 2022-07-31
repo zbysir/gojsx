@@ -488,6 +488,15 @@ func (j *Jsx) initVm(vm *goja.Runtime) {
 
 type VDom map[string]interface{}
 
+// A few React string attributes have a different name.
+// This is a mapping from React prop names to the attribute names.
+var propsToAttr = map[string]string{
+	"acceptCharset": "accept-charset",
+	"className":     "class",
+	"htmlFor":       "for",
+	"httpEquiv":     "http-equiv",
+}
+
 func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 	if len(ps) == 0 {
 		return
@@ -503,8 +512,8 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 
 		s.WriteString(" ")
 
-		if k == "className" {
-			s.WriteString("class")
+		if n, ok := propsToAttr[k]; ok {
+			s.WriteString(n)
 		} else {
 			s.WriteString(k)
 		}
