@@ -198,7 +198,7 @@ func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
 		}
 	}
 
-	j.RefreshRegistry()
+	j.RefreshRegistry(nil)
 }
 
 type Jsx struct {
@@ -271,7 +271,7 @@ func NewJsx(op Option) (*Jsx, error) {
 		cache:    op.SourceCache,
 	}
 
-	j.RefreshRegistry()
+	j.RefreshRegistry(nil)
 	return j, nil
 }
 
@@ -369,8 +369,11 @@ func (j *Jsx) registryLoader(path string) ([]byte, error) {
 
 // RefreshRegistry will load module from file instead of cache
 // 当文件更改时，可以调用 RefreshRegistry 来拿到最新的文件
-func (j *Jsx) RefreshRegistry() {
+func (j *Jsx) RefreshRegistry(newFs fs.FS) {
 	atomic.AddInt32(&j.version, 1)
+	if newFs != nil {
+		j.sourceFs = newFs
+	}
 }
 
 func (j *Jsx) initVm(vm *goja.Runtime) {
