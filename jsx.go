@@ -407,18 +407,27 @@ var propsToAttr = map[string]string{
 	"httpEquiv":     "http-equiv",
 }
 
+func sortMap(ps map[string]interface{}, f func(k string, v interface{})) {
+	keys := make([]string, 0, len(ps))
+	for k := range ps {
+		keys = append(keys, k)
+	}
+
+	for _, k := range keys {
+		f(k, ps[k])
+	}
+}
+
 func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 	if len(ps) == 0 {
 		return
 	}
 
-	for k, val := range ps {
+	// 排序
+	sortMap(ps, func(k string, val interface{}) {
 		if k == "children" {
-			continue
+			return
 		}
-		//if k != "style" && k != "className" && !strings.HasSuffix(k, "data-") {
-		//	continue
-		//}
 
 		s.WriteString(" ")
 
@@ -443,7 +452,7 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 		default:
 			v.renderAttrValue(s, val)
 		}
-	}
+	})
 }
 
 func (v VDom) renderAttrValue(s *strings.Builder, val interface{}) {
