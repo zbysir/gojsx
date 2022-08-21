@@ -9,7 +9,7 @@ Features:
 
 Jsx Features:
 
-- It's actually javascript code, it's Turing complete
+- It's actually javascript code, it's Turing complete, also don't worry about [v-for with v-if](https://cn.vuejs.org/guide/essentials/list.html#v-for-with-v-if)
 - Consistent with javascript ecological behavior, no need to learn more syntax
 
 ## Example
@@ -78,5 +78,3 @@ gojsx 默认使用 esbuild 作为编译器，同时也可以选 babel 作为编�
 不支持，由于库的复杂依赖关系，会出现意料之外的错误，也会导致加载变得很慢。
 
 如果你非要使用，尝试使用 webpack / esbuild 将依赖打包成独立的 js 文件，然后引入它（待测试）。
-
-不过我更推荐的是使用 

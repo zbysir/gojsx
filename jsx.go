@@ -124,7 +124,8 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform boo
 	if err != nil {
 		// fix Invalid module message
 		if strings.Contains(err.Error(), "Invalid module") {
-			err = errors.New(strings.ReplaceAll(err.Error(), "Invalid module", fmt.Sprintf("Invalid module '%v'", j.lastLoadModule)))
+			mod := strings.TrimSuffix(j.lastLoadModule, "/index.json")
+			err = errors.New(strings.ReplaceAll(err.Error(), "Invalid module", fmt.Sprintf("Invalid module '%v'", mod)))
 		}
 	}
 	return v, err
@@ -424,6 +425,7 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 	}
 
 	// 排序
+	// TODO 考虑直接使用 goja.Object 用作参数，不直接使用 Export 出来的 map，这样能保留字段排序。
 	sortMap(ps, func(k string, val interface{}) {
 		if k == "children" {
 			return
