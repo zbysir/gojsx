@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -413,6 +414,8 @@ func sortMap(ps map[string]interface{}, f func(k string, v interface{})) {
 	for k := range ps {
 		keys = append(keys, k)
 	}
+
+	sort.Strings(keys)
 
 	for _, k := range keys {
 		f(k, ps[k])
