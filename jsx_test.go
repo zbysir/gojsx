@@ -24,7 +24,7 @@ func TestJsx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}})
+	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`})
 	if err != nil {
 		t.Fatal(err)
 	}

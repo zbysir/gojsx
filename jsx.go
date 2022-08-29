@@ -430,7 +430,7 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 	// 排序
 	// TODO 考虑直接使用 goja.Object 用作参数，不直接使用 Export 出来的 map，这样能保留字段排序。
 	sortMap(ps, func(k string, val interface{}) {
-		if k == "children" {
+		if k == "children" || k == "dangerouslySetInnerHTML" {
 			return
 		}
 
@@ -603,7 +603,7 @@ func (v VDom) string(indent int) string {
 func (v VDom) renderChildren(s *strings.Builder, c interface{}) {
 	switch t := c.(type) {
 	case string:
-		s.WriteString(t)
+		s.WriteString(template.HTMLEscapeString(t))
 	case map[string]interface{}:
 		s.WriteString(VDom(t).Render())
 	case []interface{}:
@@ -613,7 +613,7 @@ func (v VDom) renderChildren(s *strings.Builder, c interface{}) {
 			}
 		}
 	default:
-		s.WriteString(fmt.Sprintf("%v", c))
+		s.WriteString(template.HTMLEscapeString(fmt.Sprintf("%v", c)))
 	}
 }
 
@@ -628,8 +628,10 @@ func (v VDom) render(s *strings.Builder) {
 	nodeName, _ := i.(string)
 	attr := v["attributes"]
 	var children interface{}
+	var attrMap map[string]interface{}
 	if attr != nil {
-		ci := attr.(map[string]interface{})["children"]
+		attrMap = attr.(map[string]interface{})
+		ci := attrMap["children"]
 		if ci != nil {
 			children = ci
 		}
@@ -655,7 +657,7 @@ func (v VDom) render(s *strings.Builder) {
 		s.WriteString("<")
 		s.WriteString(nodeName)
 		if attr != nil {
-			v.renderAttributes(s, attr.(map[string]interface{}))
+			v.renderAttributes(s, attrMap)
 		}
 	}
 
@@ -666,11 +668,43 @@ func (v VDom) render(s *strings.Builder) {
 	}
 
 	s.WriteString(">")
-	if children != nil {
-		v.renderChildren(s, children)
+	if h, ok := attrMap["dangerouslySetInnerHTML"]; ok {
+		writeHtml := false
+
+		h, ok := lockupMapInterface(h, "__html")
+		if ok {
+			html, ok := h.(string)
+			if ok {
+				s.WriteString(html)
+				writeHtml = true
+			}
+		}
+
+		if !writeHtml {
+			s.WriteString(template.HTMLEscapeString(fmt.Sprintf("%v", h)))
+		}
+	} else {
+		if children != nil {
+			v.renderChildren(s, children)
+		}
 	}
 
 	s.WriteString(fmt.Sprintf("</%v>", nodeName))
 
 	return
+}
+
+func lockupMapInterface(m interface{}, keys ...string) (interface{}, bool) {
+	if len(keys) == 0 {
+		return m, true
+	}
+	mm, ok := m.(map[string]interface{})
+	if !ok {
+		return nil, false
+	}
+	i, ok := mm[keys[0]]
+	if !ok {
+		return nil, false
+	}
+	return lockupMapInterface(i, keys[1:]...)
 }
