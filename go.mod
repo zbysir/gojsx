@@ -9,7 +9,6 @@ require (
 )
 
 require (
-	github.com/cloudfoundry/bosh-utils v0.0.325 // indirect
 	github.com/dlclark/regexp2 v1.7.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/jolestar/go-commons-pool/v2 v2.1.2 // indirect

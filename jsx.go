@@ -668,20 +668,13 @@ func (v VDom) render(s *strings.Builder) {
 	}
 
 	s.WriteString(">")
-	if h, ok := attrMap["dangerouslySetInnerHTML"]; ok {
-		writeHtml := false
-
-		h, ok := lockupMapInterface(h, "__html")
+	html, ok := lockupMap[map[string]interface{}](attrMap, "dangerouslySetInnerHTML")
+	if ok {
+		h, ok := lockupMap[string](html, "__html")
 		if ok {
-			html, ok := h.(string)
-			if ok {
-				s.WriteString(html)
-				writeHtml = true
-			}
-		}
-
-		if !writeHtml {
-			s.WriteString(template.HTMLEscapeString(fmt.Sprintf("%v", h)))
+			s.WriteString(h)
+		} else {
+			v.renderChildren(s, html)
 		}
 	} else {
 		if children != nil {
@@ -707,4 +700,14 @@ func lockupMapInterface(m interface{}, keys ...string) (interface{}, bool) {
 		return nil, false
 	}
 	return lockupMapInterface(i, keys[1:]...)
+}
+
+func lockupMap[T any](m interface{}, keys ...string) (t T, b bool) {
+	m, ok := lockupMapInterface(m, keys...)
+	if ok {
+		if m, ok := m.(T); ok {
+			return m, true
+		}
+	}
+	return t, false
 }
