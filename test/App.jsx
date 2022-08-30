@@ -1,7 +1,7 @@
 import Form from "./Form";
 
 export default function App(props) {
-  return <div className="bg-red-50 border-black">
+  return <div className="bg-red-50 border-black" class="text-black">
     a /2
     {
       <Form className="red block" c="c1" style={{padding: '1px'}}> f {props.li ? (<>

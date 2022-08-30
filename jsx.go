@@ -427,6 +427,17 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 		return
 	}
 
+	// 如果 attr 里同时存在 class 和 className，则会将 class 放到 className 里统一处理。
+	if c, ok := ps["class"]; ok {
+		if cn, ok := ps["className"]; ok {
+			ps["className"] = []interface{}{cn, c}
+		} else {
+			ps["className"] = c
+		}
+
+		delete(ps, "class")
+	}
+
 	// 排序
 	// TODO 考虑直接使用 goja.Object 用作参数，不直接使用 Export 出来的 map，这样能保留字段排序。
 	sortMap(ps, func(k string, val interface{}) {
@@ -487,7 +498,7 @@ func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst
 		if !isFirst {
 			s.WriteString(" ")
 		}
-		s.WriteString(strings.Trim(t, " "))
+		s.WriteString(template.HTMLEscapeString(strings.Trim(t, " ")))
 	}
 }
 
