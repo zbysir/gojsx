@@ -456,11 +456,11 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 
 		switch k {
 		case "className":
+			s.WriteString(`"`)
 			if val != nil {
-				s.WriteString(`"`)
 				v.renderClassName(s, val, true)
-				s.WriteString(`"`)
 			}
+			s.WriteString(`"`)
 		case "style":
 			s.WriteString(`"`)
 			v.renderStyle(s, val)
