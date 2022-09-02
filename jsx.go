@@ -488,6 +488,31 @@ func (v VDom) renderAttrValue(s *strings.Builder, val interface{}) {
 	}
 }
 
+// cleanClass delete \n and extra space
+func cleanClass(c string) string {
+	var s strings.Builder
+	n := len(c)
+	r := 0
+
+	cx := []rune(c)
+
+	for r < n {
+		if cx[r] == '\n' {
+			cx[r] = ' '
+		}
+
+		if cx[r] == ' ' && (r+1 == n || (cx[r+1] == ' ' || cx[r+1] == '\n')) {
+		} else {
+			if s.Len() != 0 || cx[r] != ' ' {
+				s.WriteRune(cx[r])
+			}
+		}
+		r++
+	}
+
+	return s.String()
+}
+
 func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst bool) {
 	switch t := className.(type) {
 	case []interface{}:
@@ -498,7 +523,7 @@ func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst
 		if !isFirst {
 			s.WriteString(" ")
 		}
-		s.WriteString(template.HTMLEscapeString(strings.Trim(t, " ")))
+		s.WriteString(template.HTMLEscapeString(cleanClass(t)))
 	}
 }
 

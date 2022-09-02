@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"github.com/dop251/goja"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -214,4 +215,15 @@ func TestErrorReport(t *testing.T) {
 
 		t.Logf("%+v", r)
 	})
+}
+
+func TestCleanClass(t *testing.T) {
+	v := VDom{}
+	var s strings.Builder
+	v.renderClassName(&s, "a1 a12\n b1  \n\n\n c1\nd1 d12", true)
+
+	s2 := s.String()
+	if s2 != "a1 a12 b1 c1 d1 d12" {
+		t.Errorf(s2)
+	}
 }
