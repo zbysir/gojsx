@@ -19,7 +19,6 @@ func TestJsx(t *testing.T) {
 		SourceCache: nil,
 		SourceFs:    srcfs,
 		Debug:       true,
-		Transformer: NewEsBuildTransform(false),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +40,6 @@ func TestHttp(t *testing.T) {
 		SourceCache: NewFileCache("./.cache"),
 		SourceFs:    nil,
 		Debug:       true,
-		Transformer: NewEsBuildTransform(true),
 		VmMaxTotal:  10,
 	})
 	if err != nil {
@@ -104,26 +102,6 @@ func TestHttp(t *testing.T) {
 // cpu: Intel(R) Core(TM) i5-8279U CPU @ 2.40GHz
 // 71415 ns/op
 func BenchmarkJsx(b *testing.B) {
-	j, err := NewJsx(Option{
-		Transformer: NewBabelTransformer(),
-	})
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	// render first to enable cache
-	_, err = j.Render("./test/Index", map[string]interface{}{"a": 1})
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := j.Render("./test/Index", map[string]interface{}{"a": 1})
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkJsxEsBuild(b *testing.B) {
 	j, err := NewJsx(Option{})
 	if err != nil {
 		b.Fatal(err)
@@ -226,4 +204,24 @@ func TestCleanClass(t *testing.T) {
 	if s2 != "a1 a12 b1 c1 d1 d12" {
 		t.Errorf(s2)
 	}
+}
+
+func TestRegistry(t *testing.T) {
+	j, err := NewJsx(Option{
+		SourceCache: nil,
+		SourceFs:    nil,
+		Debug:       true,
+		VmMaxTotal:  0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := j.RunJs("root.js", []byte(`require('./test/test_import.tsx')`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	x := v.Export()
+	t.Logf("%+v", x)
 }

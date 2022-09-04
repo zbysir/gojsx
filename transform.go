@@ -25,10 +25,31 @@ func NewEsBuildTransform(minify bool) *EsBuildTransform {
 	return &EsBuildTransform{minify: minify}
 }
 
+var defaultExtensionToLoaderMap = map[string]api.Loader{
+	"":      api.LoaderJS, // default
+	".js":   api.LoaderJS,
+	".mjs":  api.LoaderJS,
+	".cjs":  api.LoaderJS,
+	".jsx":  api.LoaderJSX,
+	".ts":   api.LoaderTS,
+	".tsx":  api.LoaderTSX,
+	".css":  api.LoaderCSS,
+	".json": api.LoaderJSON,
+	".txt":  api.LoaderText,
+}
+
 func (e EsBuildTransform) Transform(filePath string, code []byte) (out []byte, err error) {
 	_, file := filepath.Split(filePath)
+	ext := filepath.Ext(filePath)
+
+	loader, ok := defaultExtensionToLoaderMap[ext]
+	if !ok {
+		return nil, fmt.Errorf("unsupport file extension(%s) for transform", ext)
+	}
+
+	//api.LoaderNone
 	result := api.Transform(string(code), api.TransformOptions{
-		Loader:            api.LoaderTSX,
+		Loader:            loader,
 		Target:            api.ESNext,
 		JSXMode:           api.JSXModeAutomatic,
 		Format:            api.FormatCommonJS,
@@ -49,6 +70,7 @@ func (e EsBuildTransform) Transform(filePath string, code []byte) (out []byte, e
 	return result.Code, nil
 }
 
+// NewBabelTransformer deprecated
 func NewBabelTransformer() *BabelTransformer {
 	return &BabelTransformer{
 		p: sync.Pool{New: func() any {

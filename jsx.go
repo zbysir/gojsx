@@ -117,7 +117,7 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform boo
 	if transform {
 		src, err = j.tr.Transform(fileName, src)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("load file (%s) error :%w", fileName, err)
 		}
 	}
 
@@ -235,15 +235,11 @@ type Option struct {
 	SourceCache SourceCache
 	SourceFs    fs.FS
 	Debug       bool // enable to get more log
-	Transformer Transformer
 	VmMaxTotal  int
 }
 
 func NewJsx(op Option) (*Jsx, error) {
 	var transformer Transformer = NewEsBuildTransform(true)
-	if op.Transformer != nil {
-		transformer = op.Transformer
-	}
 
 	if op.SourceFs == nil {
 		op.SourceFs = StdFileSystem{}
@@ -280,6 +276,8 @@ func NewJsx(op Option) (*Jsx, error) {
 func (j *Jsx) registryLoader(path string) ([]byte, error) {
 	var fileBody []byte
 	//var filePath string
+
+	// 只支持转换 js/ts/tsx/jsx 文件格式
 	needTrans := false
 	if j.debug {
 		fmt.Printf("tryload: %v\n", path)
@@ -294,14 +292,18 @@ func (j *Jsx) registryLoader(path string) ([]byte, error) {
 	} else {
 		find := false
 		trySuffix := []string{""}
-		if strings.HasSuffix(path, ".js") {
+
+		ext := filepath.Ext(path)
+		switch ext {
+		case ".js":
 			needTrans = true
 			trySuffix = append(trySuffix, ".jsx")
 			trySuffix = append(trySuffix, ".tsx")
 			trySuffix = append(trySuffix, ".ts")
-		} else if strings.HasSuffix(path, ".ts") {
+		case ".tsx", "jsx", "ts":
 			needTrans = true
 		}
+
 		tryPath := path
 		for _, p := range trySuffix {
 			if p != "" {
@@ -349,7 +351,7 @@ func (j *Jsx) registryLoader(path string) ([]byte, error) {
 		} else {
 			fileBody, err = j.tr.Transform(path, fileBody)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("load file (%s) error :%w", path, err)
 			}
 
 			if j.cache != nil {
