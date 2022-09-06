@@ -205,23 +205,3 @@ func TestCleanClass(t *testing.T) {
 		t.Errorf(s2)
 	}
 }
-
-func TestRegistry(t *testing.T) {
-	j, err := NewJsx(Option{
-		SourceCache: nil,
-		SourceFs:    nil,
-		Debug:       true,
-		VmMaxTotal:  0,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	v, err := j.RunJs("root.js", []byte(`require('./test/test_import.tsx')`), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	x := v.Export()
-	t.Logf("%+v", x)
-}
