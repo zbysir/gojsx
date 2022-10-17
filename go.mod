@@ -4,7 +4,6 @@ go 1.18
 
 require (
 	github.com/dop251/goja v0.0.0-20220815083517-0c74f9139fd6
-	github.com/dop251/goja_nodejs v0.0.0-20220905124449-678b33ca5009
 	github.com/evanw/esbuild v0.14.51
 	github.com/jolestar/go-commons-pool/v2 v2.1.2
 )

@@ -3,10 +3,10 @@ package jsx
 import (
 	"fmt"
 	"github.com/dop251/goja"
-	"github.com/dop251/goja_nodejs/console"
-	"github.com/dop251/goja_nodejs/require"
 	"github.com/evanw/esbuild/pkg/api"
 	"github.com/zbysir/gojsx/internal/js"
+	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/console"
+	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/require"
 	"html/template"
 	"path/filepath"
 	"strings"
@@ -77,7 +77,7 @@ func NewBabelTransformer() *BabelTransformer {
 			vm := goja.New()
 
 			require.NewRegistry().Enable(vm)
-			console.Enable(vm)
+			console.Enable(vm, nil)
 
 			_, err := vm.RunScript("babel", js.Babel)
 			if err != nil {

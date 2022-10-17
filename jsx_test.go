@@ -17,14 +17,22 @@ var srcfs embed.FS
 func TestJsx(t *testing.T) {
 	j, err := NewJsx(Option{
 		SourceCache: nil,
-		SourceFs:    srcfs,
-		Debug:       true,
+		//SourceFs:    srcfs,
+		Debug: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`})
+	j.RegisterModule("react", map[string]interface{}{
+		"useEffect": func() {},
+	})
+
+	s, err := j.Render(&RenderParam{
+		Fs:    srcfs,
+		File:  "./test/Index",
+		Props: map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +46,6 @@ var tailwind []byte
 func TestHttp(t *testing.T) {
 	j, err := NewJsx(Option{
 		SourceCache: NewFileCache("./.cache"),
-		SourceFs:    nil,
 		Debug:       true,
 		VmMaxTotal:  10,
 	})
@@ -47,7 +54,7 @@ func TestHttp(t *testing.T) {
 	}
 
 	err = http.ListenAndServe(":8082", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		j.RefreshRegistry(nil)
+		//j.RefreshRegistry()
 
 		pageData := map[string]interface{}{}
 		page := ""
@@ -78,15 +85,19 @@ func TestHttp(t *testing.T) {
 			page = request.URL.Path
 		}
 		ti := time.Now()
-		s, err := j.Render("./test/blog/Index",
-			map[string]interface{}{
+		s, err := j.Render(&RenderParam{
+			Fs:   nil,
+			File: "./test/blog/Index",
+			Props: map[string]interface{}{
 				"a":        1,
 				"title":    "bysir' blog",
 				"me":       "bysir",
 				"page":     page,
 				"pageData": pageData,
 				"time":     "",
-			})
+			},
+			NoCache: true,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -108,11 +119,17 @@ func BenchmarkJsx(b *testing.B) {
 	}
 
 	// render first to enable cache
-	_, err = j.Render("./test/Index", map[string]interface{}{"a": 1})
+	_, err = j.Render(&RenderParam{
+		Fs:    srcfs,
+		File:  "./test/Index",
+		Props: map[string]interface{}{"a": 1}})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := j.Render("./test/Index", map[string]interface{}{"a": 1})
+		_, err := j.Render(&RenderParam{
+			Fs:    srcfs,
+			File:  "./test/Index",
+			Props: map[string]interface{}{"a": 1}})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -130,7 +147,10 @@ func TestP(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_, err := j.Render("./test/Index", map[string]interface{}{"a": 1})
+			_, err := j.Render(&RenderParam{
+				Fs:    srcfs,
+				File:  "./test/Index",
+				Props: map[string]interface{}{"a": 1}})
 			if err != nil {
 				t.Fatal(err)
 			}

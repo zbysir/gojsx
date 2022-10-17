@@ -8,9 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
-	"github.com/dop251/goja_nodejs/console"
-	"github.com/dop251/goja_nodejs/require"
 	"github.com/zbysir/gojsx/internal/js"
+	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/console"
+	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/require"
 	"html/template"
 	"io/fs"
 	"log"
@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -103,14 +102,42 @@ func mD5(v []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-func (j *Jsx) RunJs(fileName string, src []byte, transform bool) (v goja.Value, err error) {
+type RunJsParams struct {
+	Fs           fs.FS
+	FileName     string
+	Src          []byte
+	Transform    bool
+	GlobalValues map[string]interface{}
+	NoCache      bool
+}
+
+func (j *Jsx) RunJs(params *RunJsParams) (v goja.Value, err error) {
 	vm, err := j.getVm()
 	if err != nil {
 		return nil, err
 	}
 	defer j.putVm(vm)
 
-	return j.runJs(vm.vm, fileName, src, transform)
+	fileSys := params.Fs
+	if fileSys == nil {
+		fileSys = StdFileSystem{}
+	}
+
+	vm.registry.SrcLoader = j.registryLoader(fileSys)
+
+	if params.NoCache {
+		vm.registry.Enable(vm.vm) // to clear modules cache
+		vm.registry.Clear()       // to clear compiled cache
+	}
+
+	for k, v := range params.GlobalValues {
+		err = vm.vm.Set(k, v)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return j.runJs(vm.vm, params.FileName, params.Src, params.Transform)
 }
 
 func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform bool) (v goja.Value, err error) {
@@ -139,8 +166,10 @@ type MountEndpoint struct {
 }
 
 type versionedVm struct {
-	vm      *goja.Runtime
-	version int32
+	once     sync.Once
+	vm       *goja.Runtime
+	registry *require.Registry
+	version  int32
 }
 
 func (j *Jsx) getVm() (*versionedVm, error) {
@@ -149,11 +178,11 @@ func (j *Jsx) getVm() (*versionedVm, error) {
 		return nil, fmt.Errorf("pool.Get error: %w", err)
 	}
 
-	// pool 元素是协程安全的，不必考虑并发
-	if vm.version != j.version {
-		j.initVm(vm.vm)
-		vm.version = j.version
-	}
+	vm.once.Do(func() {
+		vm.registry.Enable(vm.vm)
+		console.Enable(vm.vm, nil)
+	})
+
 	return vm, nil
 }
 
@@ -161,46 +190,48 @@ func (j *Jsx) putVm(v *versionedVm) error {
 	return j.vmPool.Put(v)
 }
 
+type RenderParam struct {
+	Fs      fs.FS
+	File    string
+	Props   interface{}
+	NoCache bool
+}
+
 // Render a component to html
-func (j *Jsx) Render(component string, props interface{}) (n string, err error) {
-	vm, err := j.getVm()
-	if err != nil {
-		return "", err
-	}
-	defer j.putVm(vm)
-
-	err = vm.vm.Set("props", vm.vm.ToValue(props))
-	if err != nil {
-		return "", err
-	}
-	res, err := j.runJs(vm.vm, "root.js", []byte(fmt.Sprintf(`require("%v").default(props)`, component)), false)
+func (j *Jsx) Render(p *RenderParam) (n string, err error) {
+	res, err := j.RunJs(&RunJsParams{
+		Fs:           p.Fs,
+		FileName:     "root.js",
+		Src:          []byte(fmt.Sprintf(`require("%v").default(props)`, p.File)),
+		Transform:    false,
+		GlobalValues: map[string]interface{}{"props": p.Props},
+		NoCache:      p.NoCache,
+	})
 	if err != nil {
 		return "", err
 	}
 
-	vdom := VDom{}
-	err = vm.vm.ExportTo(res, &vdom)
-	if err != nil {
-		return "", err
-	}
-	//fmt.Printf("vdom: \n%+v", vdom)
-
+	vdom := tryToVDom(res.Export())
 	return vdom.Render(), nil
 }
 
-func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
-	if j.module == nil {
-		j.module = map[string]func(runtime *goja.Runtime, module *goja.Object){}
+func tryToVDom(i interface{}) VDom {
+	switch t := i.(type) {
+	case map[string]interface{}:
+		return t
 	}
 
-	j.module[name] = func(runtime *goja.Runtime, module *goja.Object) {
+	return VDom{}
+}
+
+func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
+	require.RegisterNativeModule(name, func(runtime *goja.Runtime, module *goja.Object) {
 		o := module.Get("exports").(*goja.Object)
 		for k, v := range obj {
 			_ = o.Set(k, v)
 		}
-	}
+	})
 
-	j.RefreshRegistry(nil)
 }
 
 type Jsx struct {
@@ -209,19 +240,14 @@ type Jsx struct {
 	tr     Transformer
 
 	// goja is not goroutine-safe
-	lock     sync.Mutex
-	sourceFs fs.FS
+	lock sync.Mutex
+	//sourceFs fs.FS
 
 	debug bool
 
 	lastLoadModule string
 
-	// 额外注入的 module
-	module map[string]func(runtime *goja.Runtime, module *goja.Object)
-
 	cache SourceCache
-
-	version int32
 }
 
 type StdFileSystem struct {
@@ -233,17 +259,12 @@ func (f StdFileSystem) Open(name string) (fs.File, error) {
 
 type Option struct {
 	SourceCache SourceCache
-	SourceFs    fs.FS
 	Debug       bool // enable to get more log
 	VmMaxTotal  int
 }
 
 func NewJsx(op Option) (*Jsx, error) {
-	var transformer Transformer = NewEsBuildTransform(true)
-
-	if op.SourceFs == nil {
-		op.SourceFs = StdFileSystem{}
-	}
+	var transformer Transformer = NewEsBuildTransform(false)
 
 	if op.VmMaxTotal <= 0 {
 		op.VmMaxTotal = 20
@@ -258,140 +279,120 @@ func NewJsx(op Option) (*Jsx, error) {
 				log.Printf("new vm")
 			}
 			return &versionedVm{
-				vm:      vm,
-				version: -1,
+				once:     sync.Once{},
+				vm:       vm,
+				registry: require.NewRegistry(),
+				version:  -1,
 			}
 		}),
-		tr:       transformer,
-		lock:     sync.Mutex{},
-		sourceFs: op.SourceFs,
-		debug:    op.Debug,
-		cache:    op.SourceCache,
+		tr:    transformer,
+		lock:  sync.Mutex{},
+		debug: op.Debug,
+		cache: op.SourceCache,
 	}
 
-	j.RefreshRegistry(nil)
 	return j, nil
 }
 
-func (j *Jsx) registryLoader(path string) ([]byte, error) {
-	var fileBody []byte
-	//var filePath string
+func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
+	return func(path string) ([]byte, error) {
+		var fileBody []byte
+		//var filePath string
 
-	// 只支持转换 js/ts/tsx/jsx 文件格式
-	needTrans := false
-	if j.debug {
-		fmt.Printf("tryload: %v\n", path)
-	}
-	j.lastLoadModule = path
+		// 只支持转换 js/ts/tsx/jsx 文件格式
+		needTrans := false
+		if j.debug {
+			fmt.Printf("tryload: %v\n", path)
+		}
+		j.lastLoadModule = path
 
-	s := time.Now()
-	if strings.Contains(path, "node_modules/react/jsx-runtime") {
-		fileBody = js.JsxRuntime
-		//filePath = path
-		needTrans = true
-	} else {
-		find := false
-		trySuffix := []string{""}
+		s := time.Now()
 
-		ext := filepath.Ext(path)
-		switch ext {
-		case ".js":
-			needTrans = true
-			trySuffix = append(trySuffix, ".jsx")
-			trySuffix = append(trySuffix, ".tsx")
-			trySuffix = append(trySuffix, ".ts")
-		case ".tsx", "jsx", "ts":
+		if strings.HasSuffix(path, "node_modules/react/jsx-runtime") {
+			fileBody = js.JsxRuntime
 			needTrans = true
 		}
 
-		tryPath := path
-		for _, p := range trySuffix {
-			if p != "" {
-				tryPath = strings.TrimSuffix(path, ".js") + p
+		if fileBody == nil {
+			find := false
+			trySuffix := []string{""}
+
+			ext := filepath.Ext(path)
+			switch ext {
+			case ".js":
+				needTrans = true
+				trySuffix = append(trySuffix, ".jsx")
+				trySuffix = append(trySuffix, ".tsx")
+				trySuffix = append(trySuffix, ".ts")
+			case ".tsx", "jsx", "ts":
+				needTrans = true
 			}
-			bs, err := fs.ReadFile(j.sourceFs, tryPath)
-			if err != nil {
-				if errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "is a directory") {
-					continue
+
+			tryPath := path
+			for _, p := range trySuffix {
+				if p != "" {
+					tryPath = strings.TrimSuffix(path, ".js") + p
 				}
-				return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
-			}
-			find = true
-			path = tryPath
-			fileBody = bs
-			break
-		}
-		if !find {
-			return nil, require.ModuleFileDoesNotExistError
-		}
-	}
-
-	fmt.Printf("load: %v", path)
-
-	var err error
-	if needTrans {
-		fmt.Printf(" transform")
-
-		cacheKey := mD5([]byte(path))
-		srcMd5 := mD5(fileBody)
-		var cached bool
-		if j.cache != nil {
-			fi, exist, err := j.cache.Get(cacheKey)
-			if err != nil {
-				return nil, err
-			}
-			if exist && fi.SrcMd5 == srcMd5 {
-				cached = true
-				fileBody = fi.Body
-			}
-		}
-
-		if cached {
-			fmt.Printf(" cached")
-		} else {
-			fileBody, err = j.tr.Transform(path, fileBody)
-			if err != nil {
-				return nil, fmt.Errorf("load file (%s) error :%w", path, err)
-			}
-
-			if j.cache != nil {
-				err = j.cache.Set(cacheKey, &Source{
-					SrcMd5:    srcMd5,
-					Body:      fileBody,
-					CreatedAt: "",
-				})
+				bs, err := fs.ReadFile(filesys, tryPath)
 				if err != nil {
-					return nil, nil
+					if errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "is a directory") {
+						continue
+					}
+					return nil, fmt.Errorf("can't load module: %v, error: %w", path, err)
+				}
+				find = true
+				path = tryPath
+				fileBody = bs
+				break
+			}
+			if !find {
+				return nil, require.ModuleFileDoesNotExistError
+			}
+		}
+
+		fmt.Printf("load: %v", path)
+
+		var err error
+		if needTrans {
+			fmt.Printf(" transform")
+
+			cacheKey := mD5([]byte(path))
+			srcMd5 := mD5(fileBody)
+			var cached bool
+			if j.cache != nil {
+				fi, exist, err := j.cache.Get(cacheKey)
+				if err != nil {
+					return nil, err
+				}
+				if exist && fi.SrcMd5 == srcMd5 {
+					cached = true
+					fileBody = fi.Body
+				}
+			}
+
+			if cached {
+				fmt.Printf(" cached")
+			} else {
+				fileBody, err = j.tr.Transform(path, fileBody)
+				if err != nil {
+					return nil, fmt.Errorf("load file (%s) error :%w", path, err)
+				}
+
+				if j.cache != nil {
+					err = j.cache.Set(cacheKey, &Source{
+						SrcMd5:    srcMd5,
+						Body:      fileBody,
+						CreatedAt: "",
+					})
+					if err != nil {
+						return nil, nil
+					}
 				}
 			}
 		}
-	}
-	fmt.Printf(" %v\n", time.Now().Sub(s))
+		fmt.Printf(" %v\n", time.Now().Sub(s))
 
-	return fileBody, nil
-}
-
-// RefreshRegistry will load module from file instead of cache
-// 当文件更改时，可以调用 RefreshRegistry 来拿到最新的文件
-func (j *Jsx) RefreshRegistry(newFs fs.FS) {
-	atomic.AddInt32(&j.version, 1)
-	if newFs != nil {
-		j.sourceFs = newFs
-	}
-}
-
-func (j *Jsx) initVm(vm *goja.Runtime) {
-	if j.debug {
-		log.Printf("initVm")
-	}
-	registry := require.NewRegistryWithLoader(j.registryLoader)
-	registry.Enable(vm)
-	console.Enable(vm)
-
-	if j.module != nil {
-		for k, obj := range j.module {
-			registry.RegisterNativeModule(k, obj)
-		}
+		return fileBody, nil
 	}
 }
 

@@ -10,8 +10,6 @@ github.com/dop251/goja v0.0.0-20220815083517-0c74f9139fd6 h1:xHdUVG+c8SWJnct16Z3
 github.com/dop251/goja v0.0.0-20220815083517-0c74f9139fd6/go.mod h1:yRkwfj0CBpOGre+TwBsqPV0IH0Pk73e4PXJOeNDboGs=
 github.com/dop251/goja_nodejs v0.0.0-20210225215109-d91c329300e7/go.mod h1:hn7BA7c8pLvoGndExHudxTDKZ84Pyvv+90pbBjbTz0Y=
 github.com/dop251/goja_nodejs v0.0.0-20211022123610-8dd9abb0616d/go.mod h1:DngW8aVqWbuLRMHItjPUyqdj+HWPvnQe8V8y1nDpIbM=
-github.com/dop251/goja_nodejs v0.0.0-20220905124449-678b33ca5009 h1:HIFRhi3kCQY7NMLX8WaoO0WNBLOKWrkWiQpxtvVwbS4=
-github.com/dop251/goja_nodejs v0.0.0-20220905124449-678b33ca5009/go.mod h1:+CJy9V5cGycP5qwp6RM5jLg+TFEMyGtD7A9xUbU/BOQ=
 github.com/evanw/esbuild v0.14.51 h1:48vPi3PxGczw/ZvjDn9F7NDE/1GZUE4RT5MxYr6zhHk=
 github.com/evanw/esbuild v0.14.51/go.mod h1:dkwI35DCMf0iR+tJDiCEiPKZ4A+AotmmeLpPEv3dl9k=
 github.com/fortytw2/leaktest v1.3.0 h1:u8491cBMTQ8ft8aeV+adlcytMZylmA5nnwwkRZjI8vw=

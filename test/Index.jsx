@@ -1,6 +1,9 @@
 import App from "./App";
+// import {useEffect, useState} from "react";
 
 export default function Index(props) {
+  // useEffect(() => {
+  // }, []);
   return <html lang="zh">
   <head>
     <meta charSet="UTF-8"/>
