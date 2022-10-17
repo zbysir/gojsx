@@ -15,7 +15,7 @@ export default function App(props) {
       </>) : 'b'}</Form>
     }
 
-    <img src="a.jpb" alt={`asdfsf"12312`} data-x={{a: "`'"}}/>
+    <img src="a.jpb" alt={`asdfsf"12312`} data-x={JSON.stringify({a: "`'"})}/>
     <p>{props.html}</p>
     <p dangerouslySetInnerHTML={{__html: props.html}}></p>
 

@@ -11,7 +11,10 @@ export default function Index(props) {
     <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet"/>
   </head>
   <body>
-  <App {...props}></App>
+  <div a={()=>{}} b={1} c={1.1}></div>
+  <App {...props}
+
+  ></App>
   </body>
   </html>
 }

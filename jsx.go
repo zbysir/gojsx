@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
@@ -475,18 +474,15 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 }
 
 func (v VDom) renderAttrValue(s *strings.Builder, val interface{}) {
+	// 只支持 string/int
 	switch t := val.(type) {
 	case string:
 		s.WriteString(`"`)
 		s.WriteString(template.HTMLEscapeString(t))
 		s.WriteString(`"`)
-	default:
+	case int64, int32, int16, int8, float64, float32:
 		s.WriteString(`"`)
-		bs, err := json.Marshal(val)
-		if err != nil {
-			panic(err)
-		}
-		s.WriteString(template.HTMLEscapeString(string(bs)))
+		s.WriteString(fmt.Sprintf("%v", t))
 		s.WriteString(`"`)
 	}
 }
