@@ -4,7 +4,6 @@ import (
 	"embed"
 	_ "embed"
 	"github.com/dop251/goja"
-	"github.com/stoewer/go-strcase"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"strings"
@@ -30,11 +29,9 @@ func TestJsx(t *testing.T) {
 		"useEffect": func() {},
 	})
 
-	s, err := j.Render(&RenderParam{
-		Fs:    srcfs,
-		File:  "./test/Index",
-		Props: map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`},
-	})
+	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`},
+		WithRenderFs(srcfs),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,19 +84,15 @@ func TestHttp(t *testing.T) {
 			page = request.URL.Path
 		}
 		ti := time.Now()
-		s, err := j.Render(&RenderParam{
-			Fs:   nil,
-			File: "./test/blog/Index",
-			Props: map[string]interface{}{
+		s, err := j.Render("./test/blog/Index",
+			map[string]interface{}{
 				"a":        1,
 				"title":    "bysir' blog",
 				"me":       "bysir",
 				"page":     page,
 				"pageData": pageData,
 				"time":     "",
-			},
-			NoCache: true,
-		})
+			})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -121,17 +114,11 @@ func BenchmarkJsx(b *testing.B) {
 	}
 
 	// render first to enable cache
-	_, err = j.Render(&RenderParam{
-		Fs:    srcfs,
-		File:  "./test/Index",
-		Props: map[string]interface{}{"a": 1}})
+	_, err = j.Render("./test/Index", map[string]interface{}{"a": 1})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := j.Render(&RenderParam{
-			Fs:    srcfs,
-			File:  "./test/Index",
-			Props: map[string]interface{}{"a": 1}})
+		_, err := j.Render("./test/Index", map[string]interface{}{"a": 1}, WithRenderCache(true))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -149,10 +136,7 @@ func TestP(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_, err := j.Render(&RenderParam{
-				Fs:    srcfs,
-				File:  "./test/Index",
-				Props: map[string]interface{}{"a": 1}})
+			_, err := j.Render("./test/Index", map[string]interface{}{"a": 1})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -222,12 +206,15 @@ func TestCleanClass(t *testing.T) {
 	var s strings.Builder
 	v.renderClassName(&s, "a1 a12\n b1  \n\n\n c1\nd1 d12", true)
 
-	s2 := s.String()
-	if s2 != "a1 a12 b1 c1 d1 d12" {
-		t.Errorf(s2)
-	}
+	assert.Equal(t, "a1 a12 b1 c1 d1 d12", s.String())
 }
 
 func TestCamelString(t *testing.T) {
-	assert.Equal(t, "strokeWidth", strcase.LowerCamelCase("stroke-width"))
+	v := VDom{}
+	var s strings.Builder
+
+	v.renderAttributes(&s, map[string]interface{}{"strokeWidth": 1})
+
+	t.Logf("%+v", s.String())
+	assert.Equal(t, " stroke-width=\"1\"", s.String())
 }

@@ -102,16 +102,67 @@ func mD5(v []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-type RunJsParams struct {
-	Fs           fs.FS
-	FileName     string
-	Src          []byte
-	Transform    bool
-	GlobalValues map[string]interface{}
-	NoCache      bool
+type runOptions struct {
+	Fs         fs.FS
+	GlobalVars map[string]interface{}
+	Cache      bool // cache compiled js and modules
+	Transform  bool // transform src to ES5 before run js
+	FileName   string
 }
 
-func (j *Jsx) RunJs(params *RunJsParams) (v goja.Value, err error) {
+type RunJsOption func(*runOptions)
+
+func WithRunFs(f fs.FS) RunJsOption {
+	return func(options *runOptions) {
+		options.Fs = f
+	}
+}
+
+func WithTransform(t bool) RunJsOption {
+	return func(options *runOptions) {
+		options.Transform = t
+	}
+}
+
+func WithRunCache(cache bool) RunJsOption {
+	return func(options *runOptions) {
+		options.Cache = cache
+	}
+}
+
+func WithRunGlobalVar(k string, v interface{}) RunJsOption {
+	return func(options *runOptions) {
+		if options.GlobalVars == nil {
+			options.GlobalVars = map[string]interface{}{}
+		}
+
+		options.GlobalVars[k] = v
+	}
+}
+
+func WithRunGlobalVars(vs map[string]interface{}) RunJsOption {
+	return func(options *runOptions) {
+		if options.GlobalVars == nil {
+			options.GlobalVars = map[string]interface{}{}
+		}
+		for k, v := range vs {
+			options.GlobalVars[k] = v
+		}
+	}
+}
+
+func WithRunFileName(fn string) RunJsOption {
+	return func(options *runOptions) {
+		options.FileName = fn
+	}
+}
+
+func (j *Jsx) RunJs(src []byte, opts ...RunJsOption) (v goja.Value, err error) {
+	var params runOptions
+	for _, o := range opts {
+		o(&params)
+	}
+
 	vm, err := j.getVm()
 	if err != nil {
 		return nil, err
@@ -125,19 +176,24 @@ func (j *Jsx) RunJs(params *RunJsParams) (v goja.Value, err error) {
 
 	vm.registry.SrcLoader = j.registryLoader(fileSys)
 
-	if params.NoCache {
+	if !params.Cache {
 		vm.registry.Enable(vm.vm) // to clear modules cache
 		vm.registry.Clear()       // to clear compiled cache
 	}
 
-	for k, v := range params.GlobalValues {
+	for k, v := range params.GlobalVars {
 		err = vm.vm.Set(k, v)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return j.runJs(vm.vm, params.FileName, params.Src, params.Transform)
+	fileName := params.FileName
+	if fileName == "" {
+		fileName = "root.js"
+	}
+
+	return j.runJs(vm.vm, fileName, src, params.Transform)
 }
 
 func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform bool) (v goja.Value, err error) {
@@ -190,23 +246,38 @@ func (j *Jsx) putVm(v *versionedVm) error {
 	return j.vmPool.Put(v)
 }
 
-type RenderParam struct {
-	Fs      fs.FS
-	File    string
-	Props   interface{}
-	NoCache bool
+type renderOptions struct {
+	Fs    fs.FS
+	Cache bool
+}
+
+type RenderOption func(*renderOptions)
+
+func WithRenderCache(cache bool) RenderOption {
+	return func(r *renderOptions) {
+		r.Cache = cache
+	}
+}
+
+func WithRenderFs(f fs.FS) RenderOption {
+	return func(r *renderOptions) {
+		r.Fs = f
+	}
 }
 
 // Render a component to html
-func (j *Jsx) Render(p *RenderParam) (n string, err error) {
-	res, err := j.RunJs(&RunJsParams{
-		Fs:           p.Fs,
-		FileName:     "root.js",
-		Src:          []byte(fmt.Sprintf(`require("%v").default(props)`, p.File)),
-		Transform:    false,
-		GlobalValues: map[string]interface{}{"props": p.Props},
-		NoCache:      p.NoCache,
-	})
+func (j *Jsx) Render(file string, props interface{}, opts ...RenderOption) (n string, err error) {
+	var p renderOptions
+	for _, o := range opts {
+		o(&p)
+	}
+
+	res, err := j.RunJs([]byte(fmt.Sprintf(`require("%v").default(props)`, file)),
+		WithRunFs(p.Fs),
+		WithRunFileName("root.js"),
+		WithRunGlobalVar("props", props),
+		WithRunCache(p.Cache),
+	)
 	if err != nil {
 		return "", err
 	}
