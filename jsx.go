@@ -471,40 +471,41 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 			return
 		}
 
-		s.WriteString(" ")
-
-		if n, ok := propsToAttr[k]; ok {
-			s.WriteString(n)
-		} else {
-			s.WriteString(k)
-		}
-		s.WriteString(`=`)
-
 		switch k {
 		case "className":
-			s.WriteString(`"`)
+			s.WriteString(` class="`)
 			if val != nil {
 				v.renderClassName(s, val, true)
 			}
 			s.WriteString(`"`)
 		case "style":
-			s.WriteString(`"`)
+			s.WriteString(` style="`)
 			v.renderStyle(s, val)
 			s.WriteString(`"`)
 		default:
-			v.renderAttrValue(s, val)
+			switch val.(type) {
+			case string, int, int32, int16, int8, int64, float64, float32:
+				s.WriteString(" ")
+				if n, ok := propsToAttr[k]; ok {
+					s.WriteString(n)
+				} else {
+					s.WriteString(k)
+				}
+				s.WriteString(`=`)
+				v.renderAttributeValue(s, val)
+			}
 		}
 	})
 }
 
-func (v VDom) renderAttrValue(s *strings.Builder, val interface{}) {
+func (v VDom) renderAttributeValue(s *strings.Builder, val interface{}) {
 	// 只支持 string/int
 	switch t := val.(type) {
 	case string:
 		s.WriteString(`"`)
 		s.WriteString(template.HTMLEscapeString(t))
 		s.WriteString(`"`)
-	case int64, int32, int16, int8, float64, float32:
+	case int, int64, int32, int16, int8, float64, float32:
 		s.WriteString(`"`)
 		s.WriteString(fmt.Sprintf("%v", t))
 		s.WriteString(`"`)
