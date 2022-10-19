@@ -4,6 +4,8 @@ import (
 	"embed"
 	_ "embed"
 	"github.com/dop251/goja"
+	"github.com/stoewer/go-strcase"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"strings"
 	"sync"
@@ -224,4 +226,8 @@ func TestCleanClass(t *testing.T) {
 	if s2 != "a1 a12 b1 c1 d1 d12" {
 		t.Errorf(s2)
 	}
+}
+
+func TestCamelString(t *testing.T) {
+	assert.Equal(t, "strokeWidth", strcase.LowerCamelCase("stroke-width"))
 }

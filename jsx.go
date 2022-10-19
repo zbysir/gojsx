@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
+	"github.com/stoewer/go-strcase"
 	"github.com/zbysir/gojsx/internal/js"
 	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/console"
 	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/require"
@@ -402,13 +403,36 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 
 type VDom map[string]interface{}
 
-// A few React string attributes have a different name.
-// This is a mapping from React prop names to the attribute names.
-var propsToAttr = map[string]string{
-	"acceptCharset": "accept-charset",
-	"className":     "class",
-	"htmlFor":       "for",
-	"httpEquiv":     "http-equiv",
+// 处理 React 中标签语法与标准标签的对应关系。如将 strokeWidth 换为 stroke-width。
+// 参考 react-dom/cjs/react-dom-server-legacy.node.development.js 实现
+var propsToAttr = map[string]string{}
+
+func init() {
+	// A few React string attributes have a different name. This is a mapping from React prop names to the attribute names.
+	for k, v := range map[string]string{
+		"acceptCharset": "accept-charset",
+		"className":     "class",
+		"htmlFor":       "for",
+		"httpEquiv":     "http-equiv",
+	} {
+		propsToAttr[k] = v
+	}
+
+	// This is a list of all SVG attributes that need special casing.
+	svgAttr := []string{"accent-height", "alignment-baseline", "arabic-form", "baseline-shift", "cap-height", "clip-path", "clip-rule", "color-interpolation", "color-interpolation-filters", "color-profile", "color-rendering", "dominant-baseline", "enable-background", "fill-opacity", "fill-rule", "flood-color", "flood-opacity", "font-family", "font-size", "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight", "glyph-name", "glyph-orientation-horizontal", "glyph-orientation-vertical", "horiz-adv-x", "horiz-origin-x", "image-rendering", "letter-spacing", "lighting-color", "marker-end", "marker-mid", "marker-start", "overline-position", "overline-thickness", "paint-order", "panose-1", "pointer-events", "rendering-intent", "shape-rendering", "stop-color", "stop-opacity", "strikethrough-position", "strikethrough-thickness", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke-width", "text-anchor", "text-decoration", "text-rendering", "underline-position", "underline-thickness", "unicode-bidi", "unicode-range", "units-per-em", "v-alphabetic", "v-hanging", "v-ideographic", "v-mathematical", "vector-effect", "vert-adv-y", "vert-origin-x", "vert-origin-y", "word-spacing", "writing-mode", "xmlns:xlink", "x-height"}
+	for _, a := range svgAttr {
+		propsToAttr[strcase.LowerCamelCase(a)] = a
+	}
+
+	// These attribute exists both in HTML and SVG. The attribute name is case-sensitive in SVG so we can't just use the React name like we do for attributes that exist only in HTML.
+	for _, a := range []string{"tabIndex", "crossOrigin"} {
+		propsToAttr[a] = strings.ToLower(a)
+	}
+
+	// These are HTML boolean attributes.
+	for _, a := range []string{"allowFullScreen", "async", "autoFocus", "autoPlay", "controls", "default", "defer", "disabled", "disablePictureInPicture", "disableRemotePlayback", "formNoValidate", "hidden", "loop", "noModule", "noValidate", "open", "playsInline", "readOnly", "required", "reversed", "scoped", "seamless", "itemScope"} {
+		propsToAttr[a] = strings.ToLower(a)
+	}
 }
 
 func sortMap(ps map[string]interface{}, f func(k string, v interface{})) {
@@ -526,23 +550,6 @@ func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst
 	}
 }
 
-func snakeString(s string) string {
-	data := make([]byte, 0, len(s)*3/2)
-	j := false
-	num := len(s)
-	for i := 0; i < num; i++ {
-		d := s[i]
-		if i > 0 && d >= 'A' && d <= 'Z' && j {
-			data = append(data, '-')
-		}
-		if d != '-' {
-			j = true
-		}
-		data = append(data, d)
-	}
-	return strings.ToLower(string(data[:]))
-}
-
 func (v VDom) renderStyle(s *strings.Builder, val interface{}) {
 	isFirst := true
 	switch t := val.(type) {
@@ -554,7 +561,7 @@ func (v VDom) renderStyle(s *strings.Builder, val interface{}) {
 				s.WriteString(" ")
 			}
 			// /node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js hyphenateStyleName
-			s.WriteString(snakeString(k))
+			s.WriteString(strcase.KebabCase(k))
 			s.WriteString(":")
 			s.WriteString(" ")
 			s.WriteString(fmt.Sprintf("%v", v))
@@ -737,6 +744,7 @@ func lockupMapInterface(m interface{}, keys ...string) (interface{}, bool) {
 	return lockupMapInterface(i, keys[1:]...)
 }
 
+// lockupMap({a: {b: 1}}, "a", "b") => 1
 func lockupMap[T any](m interface{}, keys ...string) (t T, b bool) {
 	m, ok := lockupMapInterface(m, keys...)
 	if ok {
