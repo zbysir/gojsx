@@ -206,9 +206,9 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform boo
 
 	v, err = vm.RunScript(fileName, string(src))
 	if err != nil {
-		return nil, err
+		return nil, prettifyException(err)
 	}
-	return v, prettifyException(err)
+	return v, nil
 }
 
 type MountEndpoint struct {
