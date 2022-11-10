@@ -437,7 +437,9 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 			}
 
 			if cached {
-				fmt.Printf(" cached")
+				if j.debug {
+					fmt.Printf(" cached")
+				}
 			} else {
 				fileBody, err = j.tr.Transform(path, fileBody)
 				if err != nil {
