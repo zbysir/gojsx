@@ -41,9 +41,11 @@ func parseException(s string) error {
 		return nil
 	}
 	errMsg := ss[0]
-	stack := make([]string, len(ss)-1)
-	for i, s := range ss[1:] {
-		stack[i] = s
+	stack := make([]string, 0)
+	for _, s := range ss[1:] {
+		if len(s) != 0 {
+			stack = append(stack, s)
+		}
 	}
 	return &Exception{
 		Text:   errMsg,
