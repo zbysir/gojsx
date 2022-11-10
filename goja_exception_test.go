@@ -28,6 +28,15 @@ func TestEx(t *testing.T) {
 	at Index (test/Index.jsx:14:23)
 	at root.js:1:32`,
 		},
+		{
+			In: `GoError: load file (test/Index.jsx) error :test/Index.jsx: (4:24) 
+        export default function 1 Index(props) {
+                                ^ Expected "(" but found "1"
+         at github.com/zbysir/gojsx/internal/pkg/goja_nodejs/require.(*RequireModule).require-fm (native)`,
+			Out: `GoError: load file (test/Index.jsx) error :test/Index.jsx: (4:24) 
+        export default function 1 Index(props) {
+                                ^ Expected "(" but found "1"`,
+		},
 	}
 
 	for _, c := range cases {

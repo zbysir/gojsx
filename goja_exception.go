@@ -40,20 +40,28 @@ func parseException(s string) error {
 	if len(ss) == 0 {
 		return nil
 	}
-	errMsg := ss[0]
+	var errMsg strings.Builder
 	stack := make([]string, 0)
-	for _, s := range ss[1:] {
-		if len(s) != 0 {
+	for _, s := range ss {
+		if s == "" {
+			continue
+		} else if strings.HasPrefix(strings.TrimSpace(s), "at") {
 			stack = append(stack, s)
+		} else {
+			if errMsg.Len() != 0 {
+				errMsg.WriteByte('\n')
+			}
+			errMsg.WriteString(s)
 		}
 	}
 	return &Exception{
-		Text:   errMsg,
+		Text:   errMsg.String(),
 		Stacks: stack,
 	}
 }
 
-func prettifyException(err error) error {
+func PrettifyException(err error) error {
+	// return err
 	if ex, ok := err.(*goja.Exception); ok {
 		return parseException(ex.String())
 	}

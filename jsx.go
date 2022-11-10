@@ -200,13 +200,13 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform boo
 	if transform {
 		src, err = j.tr.Transform(fileName, src)
 		if err != nil {
-			return nil, fmt.Errorf("load file (%s) error :%w", fileName, err)
+			return nil, fmt.Errorf("load file error: %w", err)
 		}
 	}
 
 	v, err = vm.RunScript(fileName, string(src))
 	if err != nil {
-		return nil, prettifyException(err)
+		return nil, PrettifyException(err)
 	}
 	return v, nil
 }
@@ -441,7 +441,7 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 			} else {
 				fileBody, err = j.tr.Transform(path, fileBody)
 				if err != nil {
-					return nil, fmt.Errorf("load file (%s) error :%w", path, err)
+					return nil, fmt.Errorf("load file error: %w", err)
 				}
 
 				if j.cache != nil {
@@ -821,4 +821,20 @@ func lockupMap[T any](m interface{}, keys ...string) (t T, b bool) {
 		}
 	}
 	return t, false
+}
+
+// AssertFunction wrap goja.AssertFunction and add prettify error message
+func AssertFunction(v goja.Value) (goja.Callable, bool) {
+	c, ok := goja.AssertFunction(v)
+	if !ok {
+		return c, false
+	}
+
+	return func(this goja.Value, args ...goja.Value) (goja.Value, error) {
+		val, err := c(this, args...)
+		if err != nil {
+			return val, PrettifyException(err)
+		}
+		return val, nil
+	}, true
 }
