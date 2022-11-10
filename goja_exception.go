@@ -5,19 +5,21 @@ import (
 	"strings"
 )
 
-type exception struct {
-	error string
-	stack []string
+type Exception struct {
+	Text   string
+	Stacks []string
 }
 
-func (e *exception) Error() string {
+func (e *Exception) Error() string {
 	var b strings.Builder
-	b.WriteString(e.error)
-	for _, s := range e.stack {
-		// skip golang require function stack
+	b.WriteString(e.Text)
+	for _, s := range e.Stacks {
+		// skip golang require function Stack
 		if strings.HasSuffix(s, "(native)") {
 			continue
 		}
+
+		// rm pt
 		if strings.HasSuffix(s, "))") {
 			i := strings.LastIndex(s, "(")
 			s = s[:i] + s[len(s)-1:]
@@ -26,14 +28,14 @@ func (e *exception) Error() string {
 			s = s[:i]
 		}
 
-		b.WriteByte('\n')
+		b.WriteString("\n\t")
 		b.WriteString(strings.TrimSpace(s))
 	}
 
 	return b.String()
 }
 
-func parseException(s string) *exception {
+func parseException(s string) error {
 	ss := strings.Split(s, "\n")
 	if len(ss) == 0 {
 		return nil
@@ -43,9 +45,9 @@ func parseException(s string) *exception {
 	for i, s := range ss[1:] {
 		stack[i] = s
 	}
-	return &exception{
-		error: errMsg,
-		stack: stack,
+	return &Exception{
+		Text:   errMsg,
+		Stacks: stack,
 	}
 }
 
