@@ -208,7 +208,7 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform boo
 	if err != nil {
 		return nil, err
 	}
-	return v, err
+	return v, prettifyException(err)
 }
 
 type MountEndpoint struct {
@@ -275,7 +275,7 @@ func (j *Jsx) Render(file string, props interface{}, opts ...RenderOption) (n st
 		WithRunCache(p.Cache),
 	)
 	if err != nil {
-		return "", prettifyException(err)
+		return "", err
 	}
 
 	vdom := tryToVDom(res.Export())
