@@ -19,7 +19,7 @@ func TestJsx(t *testing.T) {
 	j, err := NewJsx(Option{
 		SourceCache: nil,
 		//SourceFs:    srcfs,
-		Debug: true,
+		Debug: false,
 	})
 	if err != nil {
 		t.Fatal(err)

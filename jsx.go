@@ -312,8 +312,6 @@ type Jsx struct {
 
 	debug bool
 
-	lastLoadModule string
-
 	cache SourceCache
 }
 
@@ -371,7 +369,6 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 		if j.debug {
 			fmt.Printf("tryload: %v\n", path)
 		}
-		j.lastLoadModule = path
 
 		s := time.Now()
 
@@ -416,12 +413,14 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 				return nil, require.ModuleFileDoesNotExistError
 			}
 		}
-
-		fmt.Printf("load: %v", path)
-
+		if j.debug {
+			fmt.Printf("load: %v", path)
+		}
 		var err error
 		if needTrans {
-			fmt.Printf(" transform")
+			if j.debug {
+				fmt.Printf(" transform")
+			}
 
 			cacheKey := mD5([]byte(path))
 			srcMd5 := mD5(fileBody)
@@ -457,8 +456,9 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 				}
 			}
 		}
-		fmt.Printf(" %v\n", time.Now().Sub(s))
-
+		if j.debug {
+			fmt.Printf(" %v\n", time.Now().Sub(s))
+		}
 		return fileBody, nil
 	}
 }
