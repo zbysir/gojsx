@@ -2,6 +2,7 @@ package require
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,6 +21,14 @@ type ModuleLoader func(*js.Runtime, *js.Object)
 // The function should return ModuleFileDoesNotExistError if the file either doesn't exist or is a directory.
 // This error will be ignored by the resolver and the search will continue. Any other errors will be propagated.
 type SourceLoader func(path string) ([]byte, error)
+
+type ErrorInvalidModule struct {
+	Name string
+}
+
+func (e ErrorInvalidModule) Error() string {
+	return fmt.Sprintf("Invalid module: '%v'", e.Name)
+}
 
 var (
 	InvalidModuleError     = errors.New("Invalid module")

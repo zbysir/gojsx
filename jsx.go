@@ -206,11 +206,7 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform boo
 
 	v, err = vm.RunScript(fileName, string(src))
 	if err != nil {
-		// fix Invalid module message
-		if strings.Contains(err.Error(), "Invalid module") {
-			mod := strings.TrimSuffix(j.lastLoadModule, "/index.json")
-			err = errors.New(strings.ReplaceAll(err.Error(), "Invalid module", fmt.Sprintf("Invalid module '%v'", mod)))
-		}
+		return nil, err
 	}
 	return v, err
 }
@@ -279,7 +275,7 @@ func (j *Jsx) Render(file string, props interface{}, opts ...RenderOption) (n st
 		WithRunCache(p.Cache),
 	)
 	if err != nil {
-		return "", err
+		return "", prettifyException(err)
 	}
 
 	vdom := tryToVDom(res.Export())
