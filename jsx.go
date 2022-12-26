@@ -749,8 +749,10 @@ func (v VDom) render(s *strings.Builder) {
 		}
 	}
 	// Fragment 只渲染子节点
-	if nodeName == "" && children != nil {
-		v.renderChildren(s, children)
+	if nodeName == "" {
+		if children != nil {
+			v.renderChildren(s, children)
+		}
 		return
 	}
 
@@ -765,12 +767,10 @@ func (v VDom) render(s *strings.Builder) {
 		s.WriteString("<!DOCTYPE html>")
 	}
 
-	if nodeName != "" {
-		s.WriteString("<")
-		s.WriteString(nodeName)
-		if attr != nil {
-			v.renderAttributes(s, attrMap)
-		}
+	s.WriteString("<")
+	s.WriteString(nodeName)
+	if attr != nil {
+		v.renderAttributes(s, attrMap)
 	}
 
 	if selfclose {
