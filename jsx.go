@@ -105,8 +105,8 @@ func mD5(v []byte) string {
 type runOptions struct {
 	Fs         fs.FS
 	GlobalVars map[string]interface{}
-	Cache      bool // cache compiled js and modules
-	Transform  bool // transform src to ES5 before run js
+	Cache      bool              // cache compiled js and modules
+	Transform  TransformerFormat // transform src to ES5 before run js
 	FileName   string
 }
 
@@ -118,7 +118,7 @@ func WithRunFs(f fs.FS) RunJsOption {
 	}
 }
 
-func WithTransform(t bool) RunJsOption {
+func WithTransform(t TransformerFormat) RunJsOption {
 	return func(options *runOptions) {
 		options.Transform = t
 	}
@@ -196,12 +196,13 @@ func (j *Jsx) RunJs(src []byte, opts ...RunJsOption) (v goja.Value, err error) {
 	return j.runJs(vm.vm, fileName, src, params.Transform)
 }
 
-func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform bool) (v goja.Value, err error) {
-	if transform {
-		src, err = j.tr.Transform(fileName, src)
+func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform TransformerFormat) (v goja.Value, err error) {
+	if transform != 0 {
+		src, err = j.tr.Transform(fileName, src, transform)
 		if err != nil {
 			return nil, fmt.Errorf("load file error: %w", err)
 		}
+		//log.Printf("src: %s", src)
 	}
 
 	v, err = vm.RunScript(fileName, string(src))
@@ -441,7 +442,7 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 					fmt.Printf(" cached")
 				}
 			} else {
-				fileBody, err = j.tr.Transform(path, fileBody)
+				fileBody, err = j.tr.Transform(path, fileBody, TransformerFormatCommonJS)
 				if err != nil {
 					return nil, fmt.Errorf("load file error: %w", err)
 				}

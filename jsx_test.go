@@ -160,47 +160,6 @@ func TestArrowFunc(t *testing.T) {
 	t.Logf("a: %T", o.Get("a").Export()) // got 'map', but expect 'func(goja.FunctionCall) goja.Value'
 }
 
-func TestErrorReport(t *testing.T) {
-	v := goja.New()
-	x, err := v.RunString("({b: function(){return d.d}})")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	o := x.(*goja.Object)
-
-	// https://github.com/dop251/goja/pull/419
-	//goja.AssertFunction()
-	t.Run("panic", func(t *testing.T) {
-		defer func() {
-			e := recover()
-			t.Logf("%T", e)
-			o := e.(*goja.Object)
-			ex, ok := e.(*goja.Exception)
-			t.Logf("%+v %+v", ok, ex)
-
-			t.Logf("%+v", o.String())
-			t.Logf("%+v", o.ExportType())
-			//switch e {
-			//
-			//}
-		}()
-
-		f := o.Get("b").Export().(func(goja.FunctionCall) goja.Value)
-		t.Logf("b: %T", f(goja.FunctionCall{})) // func(goja.FunctionCall) goja.Value
-	})
-
-	t.Run("expect", func(t *testing.T) {
-		c, _ := goja.AssertFunction(o.Get("b"))
-		r, err := c(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		t.Logf("%+v", r)
-	})
-}
-
 func TestCleanClass(t *testing.T) {
 	v := VDom{}
 	var s strings.Builder
@@ -217,4 +176,17 @@ func TestCamelString(t *testing.T) {
 
 	t.Logf("%+v", s.String())
 	assert.Equal(t, " stroke-width=\"1\"", s.String())
+}
+
+func TestRunJs(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := j.RunJs([]byte(`function HelloJSX(){return <p></p>}; export default <HelloJSX></HelloJSX>`), WithRunFileName("1.tsx"), WithTransform(TransformerFormatIIFE))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%+v", v.Export())
 }

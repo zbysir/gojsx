@@ -1,6 +1,7 @@
 package jsx
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/dop251/goja"
 	"github.com/evanw/esbuild/pkg/api"
@@ -14,8 +15,18 @@ import (
 )
 
 type Transformer interface {
-	Transform(filePath string, code []byte) (out []byte, err error)
+	Transform(filePath string, code []byte, format TransformerFormat) (out []byte, err error)
 }
+
+type TransformerFormat uint8
+
+const (
+	TransformerNone           TransformerFormat = 0
+	TransformerFormatDefault  TransformerFormat = 1
+	TransformerFormatIIFE     TransformerFormat = 2
+	TransformerFormatCommonJS TransformerFormat = 3
+	TransformerFormatESModule TransformerFormat = 4
+)
 
 type EsBuildTransform struct {
 	minify bool
@@ -38,7 +49,26 @@ var defaultExtensionToLoaderMap = map[string]api.Loader{
 	".txt":  api.LoaderText,
 }
 
-func (e EsBuildTransform) Transform(filePath string, code []byte) (out []byte, err error) {
+func (e EsBuildTransform) Transform(filePath string, code []byte, format TransformerFormat) (out []byte, err error) {
+	var esFormat api.Format
+	var globalName string
+	switch format {
+	case TransformerNone:
+		return code, nil
+	case TransformerFormatDefault:
+		esFormat = api.FormatDefault
+	case TransformerFormatIIFE:
+		// 如果是 IIFE 格式，则始终将结果导出
+		esFormat = api.FormatIIFE
+		globalName = "__export__"
+	case TransformerFormatCommonJS:
+		esFormat = api.FormatCommonJS
+	case TransformerFormatESModule:
+		esFormat = api.FormatESModule
+	default:
+		return code, nil
+	}
+
 	_, file := filepath.Split(filePath)
 	ext := filepath.Ext(filePath)
 
@@ -47,12 +77,11 @@ func (e EsBuildTransform) Transform(filePath string, code []byte) (out []byte, e
 		return nil, fmt.Errorf("unsupport file extension(%s) for transform", ext)
 	}
 
-	//api.LoaderNone
 	result := api.Transform(string(code), api.TransformOptions{
 		Loader:            loader,
 		Target:            api.ESNext,
 		JSXMode:           api.JSXModeAutomatic,
-		Format:            api.FormatCommonJS,
+		Format:            esFormat,
 		Platform:          api.PlatformNode,
 		Sourcemap:         api.SourceMapInline,
 		SourceRoot:        "",
@@ -60,6 +89,7 @@ func (e EsBuildTransform) Transform(filePath string, code []byte) (out []byte, e
 		MinifyIdentifiers: e.minify,
 		MinifySyntax:      e.minify,
 		MinifyWhitespace:  e.minify,
+		GlobalName:        globalName,
 	})
 
 	if len(result.Errors) != 0 {
@@ -67,7 +97,12 @@ func (e EsBuildTransform) Transform(filePath string, code []byte) (out []byte, e
 		err = fmt.Errorf("%v: (%v:%v) \n%v\n%v^ %v\n", filePath, e.Location.Line, e.Location.Column, e.Location.LineText, strings.Repeat(" ", e.Location.Column), e.Text)
 		return
 	}
-	return result.Code, nil
+
+	code = result.Code
+	if globalName != "" {
+		code = bytes.TrimPrefix(code, []byte(fmt.Sprintf("var %s = ", globalName)))
+	}
+	return code, nil
 }
 
 // NewBabelTransformer deprecated
