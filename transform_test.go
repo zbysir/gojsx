@@ -41,4 +41,12 @@ func TestTransform(t *testing.T) {
 
 		t.Logf("%s", b)
 	})
+	t.Run("mdx", func(t *testing.T) {
+		b, err := x.Transform("1.mdx", []byte(`## h2 {1}`), TransformerFormatIIFE)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
 }

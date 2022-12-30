@@ -11,6 +11,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
 	"github.com/zbysir/gojsx/pkg/mdx"
+	"log"
 	"path/filepath"
 	"strings"
 )
@@ -59,6 +60,8 @@ var defaultExtensionToLoaderMap = map[string]api.Loader{
 	".txt":  api.LoaderText,
 }
 
+// TODO SourceMap
+// 如果是 md 格式，则直接当成 raw text 处理，如果是 mdx 格式，则按照 jsx 格式处理
 func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte, err error) {
 	// 将 md 处理成 xhtml
 	var mdHtml bytes.Buffer
@@ -101,9 +104,17 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 	code.Write(metabs)
 	code.WriteString(";\n")
 
-	code.WriteString("export default ()=> <>")
-	mdHtml.WriteTo(&code)
-	code.WriteString("</>")
+	switch ext {
+	case ".mdx":
+		code.WriteString("export default ()=> <>")
+		mdHtml.WriteTo(&code)
+		code.WriteString("</>")
+	default:
+		code.WriteString("export default ()=> ")
+		json.NewEncoder(&code).Encode(mdHtml.String())
+		//mdHtml.WriteTo(&code)
+	}
+
 	return code.Bytes(), nil
 }
 
@@ -165,7 +176,7 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 		}
 		loader = api.LoaderTSX
 
-		//log.Printf("transformMarkdown code %s", code)
+		log.Printf("transformMarkdown code: %s", code)
 
 	default:
 		var ok bool

@@ -1,8 +1,8 @@
 # gojsx
 
-Render React Jsx by Golang
+Render Jsx / Tsx / MD / MDX (experimental) by Golang.
 
-使用 Go 渲染 Jsx。
+使用 Go 渲染 Jsx、Tsx、MD、MDX（实验性的）。
 
 Features:
 - Pure Golang, fast and simple

@@ -229,3 +229,16 @@ func TestRenderMdx(t *testing.T) {
 
 	t.Logf("%v", n)
 }
+
+func TestExec(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := j.Exec("./test/md.md", map[string]interface{}{"a": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%+v", n.Def.ToHtml())
+}

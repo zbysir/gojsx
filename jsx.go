@@ -15,7 +15,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -255,35 +257,122 @@ func (j *Jsx) putVm(v *versionedVm) error {
 
 // Render a component to html
 func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n string, err error) {
-	vdom, err := j.RenderToVDom(file, props, opts...)
+	p, err := j.Exec(file, props, opts...)
 	if err != nil {
 		return
 	}
-	return vdom.Render(), nil
+
+	return p.Def.ToHtml(), nil
 }
 
-// RenderToVDom a component to VDom, You can iterate over the VDom to change some properties and then render it as html.
-func (j *Jsx) RenderToVDom(file string, props interface{}, opts ...OptionRender) (vdom VDom, err error) {
+// 和 goja 自己的 export 不一样的是，不会尝试导出单个变量为 golang 基础类型，而是保留 goja.Value，只是展开 Object
+func exportGojaValue(i interface{}) interface{} {
+	switch t := i.(type) {
+	case *goja.Object:
+		switch t.ExportType() {
+		case reflect.TypeOf(map[string]interface{}{}):
+			m := map[string]interface{}{}
+			for _, k := range t.Keys() {
+				m[k] = exportGojaValue(t.Get(k))
+			}
+			return m
+		case reflect.TypeOf([]interface{}{}):
+			arr := make([]interface{}, len(t.Keys()))
+			for _, k := range t.Keys() {
+				index, _ := strconv.ParseInt(k, 10, 64)
+				arr[index] = exportGojaValue(t.Get(k))
+			}
+			return arr
+		}
+	case interface{ Export() interface{} }:
+		return t.Export()
+	}
+
+	return i
+}
+
+func (j *Jsx) Exec(file string, props interface{}, opts ...OptionRender) (ex ModuleExport, err error) {
 	var p renderOptions
 	for _, o := range opts {
 		o.applyRenderOptions(&p)
 	}
 
-	res, err := j.RunJs([]byte(fmt.Sprintf(`require("%v").default(props)`, file)),
+	res, err := j.RunJs([]byte(fmt.Sprintf(`var r = require("%v"); module.exports = {...r,default: r.default(props)}`, file)),
 		WithFs(p.Fs),
 		WithFileName("root.js"),
+		WithTransform(TransformerFormatIIFE),
 		WithGlobalVar("props", props),
 		WithCache(p.Cache),
 	)
 	if err != nil {
-		return nil, err
+		return
 	}
-
-	vdom, err = tryToVDom(res.Export())
+	ex, err = parseModuleExport(exportGojaValue(res))
 	if err != nil {
-		return nil, err
+		return
 	}
 	return
+}
+
+type Htmler interface {
+	ToHtml() string
+	VDom() VDom
+}
+
+type stringHtml string
+
+func (s stringHtml) ToHtml() string {
+	return string(s)
+}
+
+func (s stringHtml) VDom() VDom {
+	return nil
+}
+
+type ModuleExport struct {
+	Def Htmler
+	Map map[string]interface{}
+}
+
+func parseModuleExport(i interface{}) (m ModuleExport, err error) {
+	var def Htmler
+	switch t := i.(type) {
+	case map[string]interface{}:
+		switch t := t["default"].(type) {
+		case *goja.Object:
+			// for export default ()=> <></>
+			c, ok := AssertFunction(t)
+			if ok {
+				val, err := c(nil)
+				if err != nil {
+					return m, err
+				}
+				def, err = tryToHtmler(val.Export())
+				if err != nil {
+					return m, err
+				}
+			} else {
+				// for export default ""
+				def, err = tryToHtmler(t.Export())
+				if err != nil {
+					return m, err
+				}
+			}
+		default:
+			def, err = tryToHtmler(t)
+			if err != nil {
+				return m, err
+			}
+		}
+
+		delete(t, "default")
+		return ModuleExport{
+			Def: def,
+			Map: t,
+		}, nil
+	default:
+		return ModuleExport{}, fmt.Errorf("export value type expect 'map[string]interface{}', actual '%T'", i)
+	}
 }
 
 func tryToVDom(i interface{}) (VDom, error) {
@@ -294,7 +383,21 @@ func tryToVDom(i interface{}) (VDom, error) {
 	case map[string]interface{}:
 		return t, nil
 	default:
-		return nil, fmt.Errorf("export value type expect 'map[string]interface{}', actual '%T'", i)
+		return nil, fmt.Errorf("ToVDom error: export value type expect 'map[string]interface{}', actual '%T'", i)
+	}
+}
+
+func tryToHtmler(i interface{}) (Htmler, error) {
+	if i == nil {
+		return nil, nil
+	}
+	switch t := i.(type) {
+	case map[string]interface{}:
+		return VDom(t), nil
+	case string:
+		return stringHtml(t), nil
+	default:
+		return nil, fmt.Errorf("tryToHtmler error: export value type expect 'map[string]interface{}' or 'string', actual '%T'", i)
 	}
 }
 
@@ -467,6 +570,14 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 //}
 
 type VDom map[string]interface{}
+
+func (v VDom) ToHtml() string {
+	return v.Render()
+}
+
+func (v VDom) VDom() VDom {
+	return v
+}
 
 // 处理 React 中标签语法与标准标签的对应关系。如将 strokeWidth 换为 stroke-width。
 // 参考 react-dom/cjs/react-dom-server-legacy.node.development.js 实现
