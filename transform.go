@@ -59,6 +59,11 @@ var defaultExtensionToLoaderMap = map[string]api.Loader{
 	".txt":  api.LoaderText,
 }
 
+func trapBOM(fileBytes []byte) []byte {
+	trimmedBytes := bytes.Trim(fileBytes, "\xef\xbb\xbf")
+	return trimmedBytes
+}
+
 // TODO SourceMap
 // 如果是 md 格式，则直接当成 raw text 处理，如果是 mdx 格式，则按照 jsx 格式处理
 func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte, err error) {
@@ -85,7 +90,7 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 	opts = append(opts, e.markdownOptions...)
 	md := goldmark.New(opts...)
 
-	err = md.Convert(src, &mdHtml, parser.WithContext(context))
+	err = md.Convert(trapBOM(src), &mdHtml, parser.WithContext(context))
 	if err != nil {
 		return
 	}
