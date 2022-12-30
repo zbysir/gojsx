@@ -1,4 +1,4 @@
-package jsx
+package gojsx
 
 import (
 	"github.com/evanw/esbuild/pkg/api"

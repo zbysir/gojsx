@@ -1,9 +1,9 @@
-package jsx
+package gojsx
 
 import "testing"
 
 func TestTransform(t *testing.T) {
-	x := NewEsBuildTransform(false)
+	x := NewEsBuildTransform(EsBuildTransformOptions{})
 
 	t.Run("json", func(t *testing.T) {
 		b, err := x.Transform("1.json", []byte(`{"a":1}`), TransformerFormatCommonJS)
@@ -26,6 +26,15 @@ func TestTransform(t *testing.T) {
 
 	t.Run("tsx", func(t *testing.T) {
 		b, err := x.Transform("1.tsx", []byte(`import HelloJSX from './index.tsx'; module.exports = <HelloJSX></HelloJSX>`), TransformerFormatIIFE)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
+
+	t.Run("md", func(t *testing.T) {
+		b, err := x.Transform("1.md", []byte(`## h2`), TransformerFormatIIFE)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,4 +1,4 @@
-package jsx
+package gojsx
 
 import (
 	"embed"
@@ -30,7 +30,7 @@ func TestJsx(t *testing.T) {
 	})
 
 	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`},
-		WithRenderFs(srcfs),
+		WithFs(srcfs),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ var tailwind []byte
 
 func TestHttp(t *testing.T) {
 	j, err := NewJsx(Option{
-		SourceCache: NewFileCache("./.cache"),
+		SourceCache: NewMemSourceCache(),
 		Debug:       true,
 		VmMaxTotal:  10,
 	})
@@ -118,7 +118,7 @@ func BenchmarkJsx(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := j.Render("./test/Index", map[string]interface{}{"a": 1}, WithRenderCache(true))
+		_, err := j.Render("./test/Index", map[string]interface{}{"a": 1}, WithCache(true))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -183,10 +183,49 @@ func TestRunJs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := j.RunJs([]byte(`function HelloJSX(){return <p></p>}; export default <HelloJSX></HelloJSX>`), WithRunFileName("1.tsx"), WithTransform(TransformerFormatIIFE))
+	v, err := j.RunJs([]byte(`function HelloJSX(){return <p></p>}; export default <HelloJSX></HelloJSX>`), WithFileName("1.tsx"), WithTransform(TransformerFormatIIFE))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Logf("%+v", v.Export())
+}
+
+func TestRunMd(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := j.RunJs([]byte(`## h2`), WithFileName("1.md"), WithTransform(TransformerFormatIIFE))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%+v", v.Export())
+}
+
+func TestRenderMd(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := j.Render("./test/md.md", map[string]interface{}{"a": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%v", n)
+}
+
+func TestRenderMdx(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := j.Render("./test/mdx.mdx", map[string]interface{}{"a": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%v", n)
 }

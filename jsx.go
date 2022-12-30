@@ -1,7 +1,6 @@
-package jsx
+package gojsx
 
 import (
-	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
@@ -22,6 +21,20 @@ import (
 	"time"
 )
 
+type Jsx struct {
+	//vm *goja.Runtime
+	vmPool *tPool[*versionedVm]
+	tr     Transformer
+
+	// goja is not goroutine-safe
+	lock sync.Mutex
+	//sourceFs fs.FS
+
+	debug bool
+
+	cache SourceCache
+}
+
 type SourceCache interface {
 	Get(key string) (f *Source, exist bool, err error)
 	Set(key string, f *Source) (err error)
@@ -33,73 +46,40 @@ type Source struct {
 	CreatedAt string
 }
 
-type FileCache struct {
-	cachePath string
+type memSourceCache struct {
+	m *sync.Map
 }
 
-func NewFileCache(cachePath string) *FileCache {
-	return &FileCache{cachePath: cachePath}
+func NewMemSourceCache() *memSourceCache {
+	return &memSourceCache{m: &sync.Map{}}
 }
 
-// Get
-// TODO lock on one file
-func (fc *FileCache) Get(key string) (f *Source, exist bool, err error) {
-	cacheFilePath := filepath.Join(fc.cachePath, key)
-
-	cbs, err := os.ReadFile(cacheFilePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
-		return
-	}
-	if err == nil {
-		x := bytes.IndexByte(cbs, '\n')
-		if x == -1 {
-			return
-		}
-		f = &Source{
-			SrcMd5:    string(cbs[:x]),
-			Body:      cbs[x+1:],
-			CreatedAt: "",
-		}
-		exist = true
-		return
+func (m *memSourceCache) Get(key string) (f *Source, exist bool, err error) {
+	i, ok := m.m.Load(key)
+	if !ok {
+		return nil, false, nil
 	}
 
-	return
+	return i.(*Source), true, nil
 }
 
-func (fc *FileCache) Set(key string, f *Source) (err error) {
-	_ = os.MkdirAll(fc.cachePath, os.ModePerm)
-
-	cacheFilePath := filepath.Join(fc.cachePath, key)
-	fi, err := os.OpenFile(cacheFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0664)
-	defer fi.Close()
-	if err != nil {
-		return fmt.Errorf("os.OpenFile error: %w", err)
-	}
-
-	_, err = fi.WriteString(f.SrcMd5)
-	if err != nil {
-		return err
-	}
-	_, err = fi.Write([]byte("\n"))
-	if err != nil {
-		return err
-	}
-	_, err = fi.Write(f.Body)
-	if err != nil {
-		return
-	}
-
-	return
+func (m *memSourceCache) Set(key string, f *Source) (err error) {
+	m.m.Store(key, f)
+	return nil
 }
 
 func mD5(v []byte) string {
 	m := md5.New()
 	m.Write(v)
 	return hex.EncodeToString(m.Sum(nil))
+}
+
+type OptionRun interface {
+	applyRunOptions(*runOptions)
+}
+
+type OptionRender interface {
+	applyRenderOptions(*renderOptions)
 }
 
 type runOptions struct {
@@ -110,57 +90,93 @@ type runOptions struct {
 	FileName   string
 }
 
+type renderOptions struct {
+	Fs    fs.FS
+	Cache bool
+}
+
 type RunJsOption func(*runOptions)
 
-func WithRunFs(f fs.FS) RunJsOption {
-	return func(options *runOptions) {
-		options.Fs = f
+type fsOption struct {
+	fs fs.FS
+}
+
+func (c fsOption) applyRunOptions(options *runOptions) {
+	options.Fs = c.fs
+}
+
+func (c fsOption) applyRenderOptions(options *renderOptions) {
+	options.Fs = c.fs
+}
+
+func WithFs(fs fs.FS) interface {
+	OptionRun
+	OptionRender
+} {
+	return fsOption{fs: fs}
+}
+
+type transformerFormatOption TransformerFormat
+
+func (t transformerFormatOption) applyRunOptions(options *runOptions) {
+	options.Transform = TransformerFormat(t)
+}
+
+func WithTransform(t TransformerFormat) OptionRun {
+	return transformerFormatOption(t)
+}
+
+type cacheOption bool
+
+func (c cacheOption) applyRunOptions(options *runOptions) {
+	options.Cache = bool(c)
+}
+
+func (c cacheOption) applyRenderOptions(options *renderOptions) {
+	options.Cache = bool(c)
+}
+
+func WithCache(cache bool) interface {
+	OptionRun
+	OptionRender
+} {
+	return cacheOption(cache)
+}
+
+type globalVarOption struct {
+	k string
+	v interface{}
+}
+
+func (g globalVarOption) applyRunOptions(options *runOptions) {
+	if options.GlobalVars == nil {
+		options.GlobalVars = map[string]interface{}{}
+	}
+
+	options.GlobalVars[g.k] = g.v
+}
+
+func WithGlobalVar(k string, v interface{}) OptionRun {
+	return globalVarOption{
+		k: k,
+		v: v,
 	}
 }
 
-func WithTransform(t TransformerFormat) RunJsOption {
-	return func(options *runOptions) {
-		options.Transform = t
-	}
+type fileNameOption string
+
+func (f fileNameOption) applyRunOptions(options *runOptions) {
+	options.FileName = string(f)
 }
 
-func WithRunCache(cache bool) RunJsOption {
-	return func(options *runOptions) {
-		options.Cache = cache
-	}
+func WithFileName(fn string) OptionRun {
+	return fileNameOption(fn)
 }
 
-func WithRunGlobalVar(k string, v interface{}) RunJsOption {
-	return func(options *runOptions) {
-		if options.GlobalVars == nil {
-			options.GlobalVars = map[string]interface{}{}
-		}
-
-		options.GlobalVars[k] = v
-	}
-}
-
-func WithRunGlobalVars(vs map[string]interface{}) RunJsOption {
-	return func(options *runOptions) {
-		if options.GlobalVars == nil {
-			options.GlobalVars = map[string]interface{}{}
-		}
-		for k, v := range vs {
-			options.GlobalVars[k] = v
-		}
-	}
-}
-
-func WithRunFileName(fn string) RunJsOption {
-	return func(options *runOptions) {
-		options.FileName = fn
-	}
-}
-
-func (j *Jsx) RunJs(src []byte, opts ...RunJsOption) (v goja.Value, err error) {
+func (j *Jsx) RunJs(src []byte, opts ...OptionRun) (v goja.Value, err error) {
 	var params runOptions
 	for _, o := range opts {
-		o(&params)
+		o.applyRunOptions(&params)
 	}
 
 	vm, err := j.getVm()
@@ -171,7 +187,7 @@ func (j *Jsx) RunJs(src []byte, opts ...RunJsOption) (v goja.Value, err error) {
 
 	fileSys := params.Fs
 	if fileSys == nil {
-		fileSys = StdFileSystem{}
+		fileSys = stdFileSystem{}
 	}
 
 	vm.registry.SrcLoader = j.registryLoader(fileSys)
@@ -212,12 +228,6 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform Tra
 	return v, nil
 }
 
-type MountEndpoint struct {
-	Endpoint  string
-	Component string
-	Props     interface{}
-}
-
 type versionedVm struct {
 	once     sync.Once
 	vm       *goja.Runtime
@@ -243,53 +253,49 @@ func (j *Jsx) putVm(v *versionedVm) error {
 	return j.vmPool.Put(v)
 }
 
-type renderOptions struct {
-	Fs    fs.FS
-	Cache bool
-}
-
-type RenderOption func(*renderOptions)
-
-func WithRenderCache(cache bool) RenderOption {
-	return func(r *renderOptions) {
-		r.Cache = cache
-	}
-}
-
-func WithRenderFs(f fs.FS) RenderOption {
-	return func(r *renderOptions) {
-		r.Fs = f
-	}
-}
-
 // Render a component to html
-func (j *Jsx) Render(file string, props interface{}, opts ...RenderOption) (n string, err error) {
-	var p renderOptions
-	for _, o := range opts {
-		o(&p)
-	}
-
-	res, err := j.RunJs([]byte(fmt.Sprintf(`require("%v").default(props)`, file)),
-		WithRunFs(p.Fs),
-		WithRunFileName("root.js"),
-		WithRunGlobalVar("props", props),
-		WithRunCache(p.Cache),
-	)
+func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n string, err error) {
+	vdom, err := j.RenderToVDom(file, props, opts...)
 	if err != nil {
-		return "", err
+		return
 	}
-
-	vdom := tryToVDom(res.Export())
 	return vdom.Render(), nil
 }
 
-func tryToVDom(i interface{}) VDom {
-	switch t := i.(type) {
-	case map[string]interface{}:
-		return t
+// RenderToVDom a component to VDom, You can iterate over the VDom to change some properties and then render it as html.
+func (j *Jsx) RenderToVDom(file string, props interface{}, opts ...OptionRender) (vdom VDom, err error) {
+	var p renderOptions
+	for _, o := range opts {
+		o.applyRenderOptions(&p)
 	}
 
-	return VDom{}
+	res, err := j.RunJs([]byte(fmt.Sprintf(`require("%v").default(props)`, file)),
+		WithFs(p.Fs),
+		WithFileName("root.js"),
+		WithGlobalVar("props", props),
+		WithCache(p.Cache),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	vdom, err = tryToVDom(res.Export())
+	if err != nil {
+		return nil, err
+	}
+	return
+}
+
+func tryToVDom(i interface{}) (VDom, error) {
+	if i == nil {
+		return nil, nil
+	}
+	switch t := i.(type) {
+	case map[string]interface{}:
+		return t, nil
+	default:
+		return nil, fmt.Errorf("export value type expect 'map[string]interface{}', actual '%T'", i)
+	}
 }
 
 func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
@@ -302,24 +308,10 @@ func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
 
 }
 
-type Jsx struct {
-	//vm *goja.Runtime
-	vmPool *tPool[*versionedVm]
-	tr     Transformer
-
-	// goja is not goroutine-safe
-	lock sync.Mutex
-	//sourceFs fs.FS
-
-	debug bool
-
-	cache SourceCache
+type stdFileSystem struct {
 }
 
-type StdFileSystem struct {
-}
-
-func (f StdFileSystem) Open(name string) (fs.File, error) {
+func (f stdFileSystem) Open(name string) (fs.File, error) {
 	return os.Open(name)
 }
 
@@ -327,13 +319,20 @@ type Option struct {
 	SourceCache SourceCache
 	Debug       bool // enable to get more log
 	VmMaxTotal  int
+	Transformer Transformer
 }
 
 func NewJsx(op Option) (*Jsx, error) {
-	var transformer Transformer = NewEsBuildTransform(false)
-
 	if op.VmMaxTotal <= 0 {
 		op.VmMaxTotal = 20
+	}
+
+	if op.Transformer == nil {
+		op.Transformer = NewEsBuildTransform(EsBuildTransformOptions{})
+	}
+
+	if op.SourceCache == nil {
+		op.SourceCache = NewMemSourceCache()
 	}
 
 	j := &Jsx{
@@ -351,7 +350,7 @@ func NewJsx(op Option) (*Jsx, error) {
 				version:  -1,
 			}
 		}),
-		tr:    transformer,
+		tr:    op.Transformer,
 		lock:  sync.Mutex{},
 		debug: op.Debug,
 		cache: op.SourceCache,
@@ -365,8 +364,6 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 		var fileBody []byte
 		//var filePath string
 
-		// 只支持转换 js/ts/tsx/jsx 文件格式
-		needTrans := false
 		if j.debug {
 			fmt.Printf("tryload: %v\n", path)
 		}
@@ -375,7 +372,6 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 
 		if strings.HasSuffix(path, "node_modules/react/jsx-runtime") {
 			fileBody = js.JsxRuntime
-			needTrans = true
 		}
 
 		if fileBody == nil {
@@ -385,12 +381,11 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 			ext := filepath.Ext(path)
 			switch ext {
 			case ".js":
-				needTrans = true
 				trySuffix = append(trySuffix, ".jsx")
 				trySuffix = append(trySuffix, ".tsx")
 				trySuffix = append(trySuffix, ".ts")
-			case ".tsx", "jsx", "ts":
-				needTrans = true
+				trySuffix = append(trySuffix, ".md")
+				trySuffix = append(trySuffix, ".mdx")
 			}
 
 			tryPath := path
@@ -418,47 +413,47 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 			fmt.Printf("load: %v", path)
 		}
 		var err error
-		if needTrans {
+
+		if j.debug {
+			fmt.Printf(" transform")
+		}
+
+		cacheKey := mD5([]byte(path))
+		srcMd5 := mD5(fileBody)
+		var cached bool
+		if j.cache != nil {
+			fi, exist, err := j.cache.Get(cacheKey)
+			if err != nil {
+				return nil, err
+			}
+			if exist && fi.SrcMd5 == srcMd5 {
+				cached = true
+				fileBody = fi.Body
+			}
+		}
+
+		if cached {
 			if j.debug {
-				fmt.Printf(" transform")
+				fmt.Printf(" cached")
+			}
+		} else {
+			fileBody, err = j.tr.Transform(path, fileBody, TransformerFormatCommonJS)
+			if err != nil {
+				return nil, fmt.Errorf("load file error: %w", err)
 			}
 
-			cacheKey := mD5([]byte(path))
-			srcMd5 := mD5(fileBody)
-			var cached bool
 			if j.cache != nil {
-				fi, exist, err := j.cache.Get(cacheKey)
+				err = j.cache.Set(cacheKey, &Source{
+					SrcMd5:    srcMd5,
+					Body:      fileBody,
+					CreatedAt: "",
+				})
 				if err != nil {
-					return nil, err
-				}
-				if exist && fi.SrcMd5 == srcMd5 {
-					cached = true
-					fileBody = fi.Body
-				}
-			}
-
-			if cached {
-				if j.debug {
-					fmt.Printf(" cached")
-				}
-			} else {
-				fileBody, err = j.tr.Transform(path, fileBody, TransformerFormatCommonJS)
-				if err != nil {
-					return nil, fmt.Errorf("load file error: %w", err)
-				}
-
-				if j.cache != nil {
-					err = j.cache.Set(cacheKey, &Source{
-						SrcMd5:    srcMd5,
-						Body:      fileBody,
-						CreatedAt: "",
-					})
-					if err != nil {
-						return nil, nil
-					}
+					return nil, nil
 				}
 			}
 		}
+
 		if j.debug {
 			fmt.Printf(" %v\n", time.Now().Sub(s))
 		}
@@ -658,6 +653,7 @@ func (v VDom) printChild(s *strings.Builder, indent int, c interface{}) {
 		s.WriteString("\n")
 	}
 }
+
 func (v VDom) printAttr(s *strings.Builder, attr interface{}) {
 	if attr == nil {
 		return
@@ -675,6 +671,7 @@ func (v VDom) printAttr(s *strings.Builder, attr interface{}) {
 
 	s.WriteString(fmt.Sprintf(" %+v", m))
 }
+
 func (v VDom) printIndent(s *strings.Builder, indent int) {
 	s.WriteString(strings.Repeat("  |", indent))
 }
@@ -737,6 +734,9 @@ func (v VDom) Render() string {
 }
 
 func (v VDom) render(s *strings.Builder) {
+	if v == nil {
+		return
+	}
 	i := v["nodeName"]
 	nodeName, _ := i.(string)
 	attr := v["attributes"]
