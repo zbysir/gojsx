@@ -11,7 +11,6 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
 	"github.com/zbysir/gojsx/pkg/mdx"
-	"log"
 	"path/filepath"
 	"strings"
 )
@@ -176,8 +175,7 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 		}
 		loader = api.LoaderTSX
 
-		log.Printf("transformMarkdown code: %s", code)
-
+		//log.Printf("transformMarkdown code: %s", code)
 	default:
 		var ok bool
 		loader, ok = defaultExtensionToLoaderMap[ext]
