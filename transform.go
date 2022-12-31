@@ -7,10 +7,13 @@ import (
 	"github.com/evanw/esbuild/pkg/api"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark-meta"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 	"github.com/zbysir/gojsx/pkg/mdx"
+	"go.abhg.dev/goldmark/toc"
 	"path/filepath"
 	"strings"
 )
@@ -32,11 +35,13 @@ const (
 type EsBuildTransform struct {
 	minify          bool
 	markdownOptions []goldmark.Option
+	markdownExport  func(ctx parser.Context, n ast.Node, src []byte) map[string]interface{}
 }
 
 type EsBuildTransformOptions struct {
 	Minify          bool
 	MarkdownOptions []goldmark.Option
+	MarkdownExport  func(ctx parser.Context, n ast.Node, src []byte) map[string]interface{}
 }
 
 func NewEsBuildTransform(o EsBuildTransformOptions) *EsBuildTransform {
@@ -64,12 +69,39 @@ func trapBOM(fileBytes []byte) []byte {
 	return trimmedBytes
 }
 
+type tableOfContentItem struct {
+	Items []tableOfContentItem `json:"items"`
+	Title string               `json:"title"`
+	Id    string               `json:"id"`
+}
+type tableOfContent struct {
+	Items []tableOfContentItem `json:"items"`
+}
+
+func trToc(t *toc.TOC) *tableOfContent {
+	return &tableOfContent{
+		Items: trTocItems(t.Items),
+	}
+}
+
+func trTocItems(t toc.Items) []tableOfContentItem {
+	ts := make([]tableOfContentItem, len(t))
+	for i, v := range t {
+		ts[i] = tableOfContentItem{
+			Items: trTocItems(v.Items),
+			Title: string(v.Title),
+			Id:    string(v.ID),
+		}
+	}
+	return ts
+}
+
 // TODO SourceMap
 // 如果是 md 格式，则直接当成 raw text 处理，如果是 mdx 格式，则按照 jsx 格式处理
 func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte, err error) {
 	// 将 md 处理成 xhtml
 	var mdHtml bytes.Buffer
-	context := parser.NewContext()
+	ctx := parser.NewContext()
 	opts := []goldmark.Option{
 		goldmark.WithRendererOptions(
 			html.WithUnsafe(),
@@ -79,45 +111,60 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 			meta.Meta,
 			extension.GFM,
 		),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(), // for toc
+		),
 	}
 	switch ext {
 	case ".mdx":
 		opts = append(opts, goldmark.WithExtensions(
-			mdx.NewMdJsx(nil),
+			mdx.NewMdJsx("mdx"),
+		))
+	case ".md":
+		opts = append(opts, goldmark.WithExtensions(
+			mdx.NewMdJsx("md"),
 		))
 	}
 
 	opts = append(opts, e.markdownOptions...)
 	md := goldmark.New(opts...)
 
-	err = md.Convert(trapBOM(src), &mdHtml, parser.WithContext(context))
+	doc := md.Parser().Parse(text.NewReader(trapBOM(src)))
+	tocTree, err := toc.Inspect(doc, src)
+	err = md.Renderer().Render(&mdHtml, src, doc)
 	if err != nil {
 		return
 	}
 
-	m := meta.Get(context)
-	jsCode := mdx.GetJsCode(context)
-
-	metabs, _ := json.Marshal(ToStrMap(m))
+	m := meta.Get(ctx)
+	jsCode := mdx.GetJsCode(ctx)
 
 	var code bytes.Buffer
 	code.WriteString(jsCode)
 	code.WriteString(";\n")
 
-	code.WriteString("export let meta = ")
-	code.Write(metabs)
-	code.WriteString(";\n")
-
-	switch ext {
-	case ".mdx":
-		code.WriteString("export default ()=> <>")
-		mdHtml.WriteTo(&code)
-		code.WriteString("</>")
-	default:
-		code.WriteString("export default ()=> ")
-		json.NewEncoder(&code).Encode(mdHtml.String())
-		//mdHtml.WriteTo(&code)
+	exportObj := map[string]interface{}{
+		"meta": ToStrMap(m),
+		"toc":  trToc(tocTree),
 	}
+	if e.markdownExport != nil {
+		export := e.markdownExport(ctx, doc, src)
+		for k, v := range export {
+			exportObj[k] = v
+		}
+	}
+
+	for k, v := range exportObj {
+		code.WriteString(fmt.Sprintf("export let %s = ", k))
+		bs, _ := json.Marshal(v)
+		code.Write(bs)
+		code.WriteString(";\n")
+	}
+
+	// write jsx
+	code.WriteString("export default (props)=> <>")
+	mdHtml.WriteTo(&code)
+	code.WriteString("</>")
 
 	return code.Bytes(), nil
 }

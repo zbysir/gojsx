@@ -1,8 +1,6 @@
-# 源
+base on github.com/tdewolff/parse/v2/html
 
-github.com/tdewolff/parse/v2/html
-
-# 修改
+jsx and html syntax are different,so I made the following modifications:
 
 - `<></>`：原来会处理成 text，现在会按照 tag 处理
 - `<A name={name}/>`：原来不能正确匹配 tag

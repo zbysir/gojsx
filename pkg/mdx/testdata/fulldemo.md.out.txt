@@ -1,0 +1,137 @@
+<h1>Markdown Demo</h1>
+<hr />
+<h2>一、标题</h2>
+<h3>1. 使用 <code>#</code> 表示标题，其中 <code>#</code> 号必须在行首，例如：</h3>
+<h1>一号标题</h1>
+<h2>二号标题</h2>
+<h3>三号标题</h3>
+<h4>四号标题</h4>
+<h5>五号标题</h5>
+<h6>六号标题</h6>
+<h3>2. 使用 <code>===</code> 或者 <code>---</code> 表示，例如：</h3>
+<h1>一级标题</h1>
+<h2>二级标题</h2>
+<h4><strong>扩展：如何换行？</strong></h4>
+<p>一般使用 <strong>两个空格</strong> 加 <strong>回车</strong> 换行，不过一些 IDE 也可以直接使用回车换行。</p>
+<h2>二、分割线</h2>
+<p>使用三个或以上的 <code>-</code> 或者 <code>*</code>  表示，且这一行只有符号，<strong>注意不要被识别为二级标题即可</strong>，例如中间或者前面可以加空格</p>
+<hr />
+<hr />
+<h2>三、斜体和粗体</h2>
+<p>使用 <code>*</code> 和 <code>**</code> 分别表示斜体和粗体，例如</p>
+<p><em>斜体</em>
+<strong>粗体</strong>
+<em><strong>又斜又粗</strong></em></p>
+<h4>**扩展：**删除线使用两个 <code>~</code> 表示，例如</h4>
+<p><del>我是要删掉的文字</del></p>
+<hr />
+<h2>四、超链接和图片</h2>
+<p>超链接和图片的写法类似，图片仅在超链接前多了一个 <code>!</code> ，一般是 [文字描述] (链接)<br />
+两种写法，分别是： <a href="https://www.baidu.com/">第一种写法</a> 和 <a href="https://www.baidu.com/">第二种写法</a><br />
+图片的话就比如这样： <img src="https://www.zybuluo.com/static/img/logo.png" alt="Image" /></p>
+<hr />
+<h2>五、无序列表</h2>
+<p>使用 <code>-</code>、<code>+</code> 和 <code>*</code> 表示无序列表，前后留一行空白，可嵌套，例如</p>
+<ul>
+<li>一层
+<ul>
+<li>二层</li>
+<li>二层
+<ul>
+<li>三层
+<ul>
+<li>四层</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>一层</li>
+</ul>
+<hr />
+<h2>六、有序列表</h2>
+<p>使用 <code>1. </code> （点号后面有个空格）表示有序列表，可嵌套，例如</p>
+<ol>
+<li>一层
+<ol>
+<li>二层</li>
+<li>二层</li>
+</ol>
+</li>
+<li>一层</li>
+</ol>
+<hr />
+<h2>七、文字引用</h2>
+<p>使用 <code>&gt;</code> 表示，可以有多个 <code>&gt;</code>，表示层级更深，例如</p>
+<blockquote>
+<p>第一层</p>
+<blockquote>
+<p>第二层
+这样是跳不出去的</p>
+<blockquote>
+<p>还可以更深</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<blockquote>
+<p>这样就跳出去了</p>
+</blockquote>
+<hr />
+<h2>八、行内代码块</h2>
+<p>其实上面已经用过很多次了，即使用 ` 表示，例如</p>
+<p><code>行内代码块</code></p>
+<h3>扩展：很多字符是需要转义，使用反斜杠 <code>\</code> 进行转义</h3>
+<hr />
+<h2>九、代码块</h2>
+<p>使用四个空格缩进表示代码块，例如</p>
+<pre><code dangerouslySetInnerHTML={{ __html: "public class HelloWorld\n{\n    public static void main(String[] args)\n    { \n        System.out.println( \"Hello, World!\" );\n    }\n}\n"
+}}></code></pre>
+<p>一些 IDE 支持行数提示和着色，一般使用三个 ` 表示，例如</p>
+<pre><code dangerouslySetInnerHTML={{ __html: "public class HelloWorld\n{\n    public static void main(String[] args)\n    { \n        System.out.println( \"Hello, World!\" );\n    }\n}\n"
+}}></code></pre>
+<hr />
+<h2>十、表格</h2>
+<p>直接看例子吧，第二行的 <code>---:</code> 表示了对齐方式，默认<strong>左对齐</strong>，还有<strong>右对齐</strong>和<strong>居中</strong></p>
+<table>
+<thead>
+<tr>
+<th>商品</th>
+<th align="right">数量</th>
+<th align="center">单价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>苹果苹果苹果</td>
+<td align="right">10</td>
+<td align="center">$1</td>
+</tr>
+<tr>
+<td>电脑</td>
+<td align="right">1</td>
+<td align="center">$1999</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>十一、数学公式</h2>
+<p>使用 <code>$</code> 表示，其中一个 $ 表示在行内，两个 $ 表示独占一行。
+例如质量守恒公式：$$E=mc^2$$
+支持 <strong>LaTeX</strong> 编辑显示支持，例如：$\sum_{i=1}^n a_i=0$， 访问 <a href="https://www.zybuluo.com/static/img/logo.png">MathJax</a> 参考更多使用方法。</p>
+<p>推荐一个常用的数学公式在线编译网站： <a href="https://www.codecogs.com/latex/eqneditor.php">https://www.codecogs.com/latex/eqneditor.php</a></p>
+<hr />
+<h2>十二、支持HTML标签</h2>
+<h3>1. 例如想要段落的缩进，可以如下：</h3>
+<p>  不断行的空白格 或 <br />
+  半方大的空白 或 <br />
+  全方大的空白 或 </p>
+<hr />
+<h2>十三、其它</h2>
+<ol>
+<li>markdown 各个 IDE 的使用可能存在大同小异，一般可以参考各个 IDE 的介绍文档</li>
+<li>本文档介绍的内容基本适用于大部分的 IDE</li>
+<li>其它一些类似 <strong>流程图</strong> 之类的功能，需要看 IDE 是否支持。</li>
+</ol>
+<p>查看原始数据：<a href="https://gitee.com/afei_/MarkdownDemo/raw/master/README.md">https://gitee.com/afei_/MarkdownDemo/raw/master/README.md</a></p>
+<p>博客：<a href="https://blog.csdn.net/afei__/article/details/80717153">https://blog.csdn.net/afei__/article/details/80717153</a></p>

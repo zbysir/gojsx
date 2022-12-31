@@ -3,10 +3,6 @@ package mdx
 import (
 	"bytes"
 	"github.com/stretchr/testify/assert"
-	"github.com/yuin/goldmark"
-	meta "github.com/yuin/goldmark-meta"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/renderer/html"
 	"testing"
 )
 
@@ -89,7 +85,7 @@ func TestParseToClose(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
 			buf := bytes.NewBuffer([]byte(c.In))
-			s, e, ok, err := ParseToClose(buf)
+			s, e, ok, err := parseTagToClose(buf)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,57 +96,5 @@ func TestParseToClose(t *testing.T) {
 			assert.Equal(t, c.Out, string([]byte(c.In)[s:e]))
 		})
 	}
-
-}
-
-func TestMdx(t *testing.T) {
-	opts := []goldmark.Option{
-		goldmark.WithRendererOptions(
-			html.WithUnsafe(),
-			html.WithXHTML(),
-		),
-		goldmark.WithExtensions(
-			meta.Meta,
-			extension.GFM,
-			NewMdJsx(nil),
-		),
-	}
-	var buf bytes.Buffer
-	md := goldmark.New(opts...)
-	err := md.Convert([]byte(`
-import Logo from "./logo"
-import Footer from "./footer.md"
-const a = "3233"
-
-{a}
-
-<>
-<div>
-  <Logo></Logo>
-  <h1 className="text-center">
-    Hollow
-  </h1>
-
-</div>
-
-  <Footer></Footer>
-</>
-`), &buf)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, `<p>{a}</p>
-<>
-<div>
-  <Logo></Logo>
-  <h1 className="text-center">
-    Hollow
-  </h1>
-2
-</div>
-
-  <Footer></Footer>
-</>`, buf.String())
 
 }

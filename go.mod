@@ -11,6 +11,7 @@ require (
 	github.com/tdewolff/parse/v2 v2.6.5
 	github.com/yuin/goldmark v1.5.3
 	github.com/yuin/goldmark-meta v1.1.0
+	go.abhg.dev/goldmark/toc v0.3.0
 )
 
 require (
