@@ -64,6 +64,11 @@ const a = "3233"
 			In:   readFile("./testdata/fulldemo.md"),
 			Out:  readFile("./testdata/fulldemo.md.out.txt"),
 		},
+		{
+			Name: "D",
+			In:   readFile("./testdata/introduction.md"),
+			Out:  readFile("./testdata/introduction.md.out.txt"),
+		},
 	}
 
 	opts := []goldmark.Option{

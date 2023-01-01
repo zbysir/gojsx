@@ -10,7 +10,6 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 	"github.com/zbysir/gojsx/pkg/mdx"
 	"go.abhg.dev/goldmark/toc"
@@ -74,21 +73,12 @@ type tableOfContentItem struct {
 	Title string               `json:"title"`
 	Id    string               `json:"id"`
 }
-type tableOfContent struct {
-	Items []tableOfContentItem `json:"items"`
-}
 
-func trToc(t *toc.TOC) *tableOfContent {
-	return &tableOfContent{
-		Items: trTocItems(t.Items),
-	}
-}
-
-func trTocItems(t toc.Items) []tableOfContentItem {
+func toTocItems(t toc.Items) []tableOfContentItem {
 	ts := make([]tableOfContentItem, len(t))
 	for i, v := range t {
 		ts[i] = tableOfContentItem{
-			Items: trTocItems(v.Items),
+			Items: toTocItems(v.Items),
 			Title: string(v.Title),
 			Id:    string(v.ID),
 		}
@@ -97,16 +87,13 @@ func trTocItems(t toc.Items) []tableOfContentItem {
 }
 
 // TODO SourceMap
-// 如果是 md 格式，则直接当成 raw text 处理，如果是 mdx 格式，则按照 jsx 格式处理
+// 将 md 转换成 jsx 语法
 func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte, err error) {
 	// 将 md 处理成 xhtml
 	var mdHtml bytes.Buffer
 	ctx := parser.NewContext()
 	opts := []goldmark.Option{
-		goldmark.WithRendererOptions(
-			html.WithUnsafe(),
-			html.WithXHTML(),
-		),
+
 		goldmark.WithExtensions(
 			meta.Meta,
 			extension.GFM,
@@ -129,8 +116,15 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 	opts = append(opts, e.markdownOptions...)
 	md := goldmark.New(opts...)
 
-	doc := md.Parser().Parse(text.NewReader(trapBOM(src)))
+	doc := md.Parser().Parse(text.NewReader(src), parser.WithContext(ctx))
+
+	//doc.Dump(src, 1)
+
 	tocTree, err := toc.Inspect(doc, src)
+	if err != nil {
+		err = fmt.Errorf("toc.Inspect error: %w", err)
+		return
+	}
 	err = md.Renderer().Render(&mdHtml, src, doc)
 	if err != nil {
 		return
@@ -144,8 +138,10 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 	code.WriteString(";\n")
 
 	exportObj := map[string]interface{}{
-		"meta": ToStrMap(m),
-		"toc":  trToc(tocTree),
+		"meta": toStrMap(m),
+	}
+	if tocTree != nil {
+		exportObj["toc"] = toTocItems(tocTree.Items)
 	}
 	if e.markdownExport != nil {
 		export := e.markdownExport(ctx, doc, src)
@@ -169,25 +165,25 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 	return code.Bytes(), nil
 }
 
-// ToStrMap gopkg.in/yaml.v2 会解析出 map[interface{}]interface{} 这样的结构，不支持 json 序列化。需要手动转一次
-func ToStrMap(i interface{}) interface{} {
+// toStrMap gopkg.in/yaml.v2 会解析出 map[interface{}]interface{} 这样的结构，不支持 json 序列化。需要手动转一次
+func toStrMap(i interface{}) interface{} {
 	switch t := i.(type) {
 	case map[string]interface{}:
 		m := map[string]interface{}{}
 		for k, v := range t {
-			m[k] = ToStrMap(v)
+			m[k] = toStrMap(v)
 		}
 		return m
 	case map[interface{}]interface{}:
 		m := map[string]interface{}{}
 		for k, v := range t {
-			m[k.(string)] = ToStrMap(v)
+			m[k.(string)] = toStrMap(v)
 		}
 		return m
 	case []interface{}:
 		m := make([]interface{}, len(t))
 		for i, v := range t {
-			m[i] = ToStrMap(v)
+			m[i] = toStrMap(v)
 		}
 		return m
 	default:
@@ -196,6 +192,8 @@ func ToStrMap(i interface{}) interface{} {
 }
 
 func (e *EsBuildTransform) Transform(filePath string, code []byte, format TransformerFormat) (out []byte, err error) {
+	code = trapBOM(code)
+
 	var esFormat api.Format
 	var globalName string
 	switch format {

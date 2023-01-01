@@ -1,6 +1,8 @@
 package gojsx
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestTransform(t *testing.T) {
 	x := NewEsBuildTransform(EsBuildTransformOptions{})
@@ -41,8 +43,65 @@ func TestTransform(t *testing.T) {
 
 		t.Logf("%s", b)
 	})
+	t.Run("md", func(t *testing.T) {
+		b, err := x.Transform("1.md", []byte(`
+---
+{a: 1}
+---
+{ffff: ffdaf}
+<>
+dfafefdf: fwe :
+
+f{}fsdfsdfas d{}
+
+fsd<><@EOI3u4iuO#$U#($U#94u8u8
+<?fdf>
+
+"'""'""
+""
+"
+
+##￥77&￥&￥&7&&&&4uhefuhwf c$&&$
+;;;
+<><<<><?>
+
+## h2`), TransformerFormatIIFE)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
 	t.Run("mdx", func(t *testing.T) {
-		b, err := x.Transform("1.mdx", []byte(`## h2 {1}`), TransformerFormatIIFE)
+		b, err := x.Transform("1.mdx", []byte(`
+## h2 {1}
+
+<>
+{[].map(i=>(8))}
+</>
+`), TransformerFormatIIFE)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
+	t.Run("mdx2", func(t *testing.T) {
+		b, err := x.Transform("1.mdx", []byte(`
+---
+logo: Hollow
+---
+
+import Logo from "./logo"
+import Footer from "./footer.md"
+const history = [
+  {
+    time: "2020.01",
+    msgs: ["诞生", "hh"],
+  }
+]
+
+`), TransformerFormatIIFE)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -50,3 +109,8 @@ func TestTransform(t *testing.T) {
 		t.Logf("%s", b)
 	})
 }
+
+//func TestHtml(t *testing.T) {
+//	url.PathEscape()
+//
+//}

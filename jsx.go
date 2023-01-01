@@ -262,7 +262,7 @@ func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n st
 		return
 	}
 
-	return p.Def.ToHtml(), nil
+	return p.Default.VDom.Render(), nil
 }
 
 // 和 goja 自己的 export 不一样的是，不会尝试导出单个变量为 golang 基础类型，而是保留 goja.Value，只是展开 Object
@@ -314,28 +314,43 @@ func (j *Jsx) Exec(file string, props interface{}, opts ...OptionRender) (ex Mod
 	return
 }
 
-type Htmler interface {
-	ToHtml() string
-	VDom() VDom
-}
+// ExecCode code 需要是 ESModule 格式，如 export default () => <></>
+func (j *Jsx) ExecCode(fileName string, code []byte, props interface{}, opts ...OptionRender) (ex ModuleExport, err error) {
+	var p renderOptions
+	for _, o := range opts {
+		o.applyRenderOptions(&p)
+	}
 
-type stringHtml string
-
-func (s stringHtml) ToHtml() string {
-	return string(s)
-}
-
-func (s stringHtml) VDom() VDom {
-	return nil
+	res, err := j.RunJs(code,
+		WithFs(p.Fs),
+		WithFileName(fileName),
+		WithTransform(TransformerFormatIIFE),
+		WithGlobalVar("props", props),
+		WithCache(p.Cache),
+	)
+	if err != nil {
+		return
+	}
+	ex, err = parseModuleExport(exportGojaValue(res))
+	if err != nil {
+		return
+	}
+	return
 }
 
 type ModuleExport struct {
-	Def Htmler
-	Map map[string]interface{}
+	Default VDomOrInterface
+	Exports map[string]interface{}
+}
+
+type VDomOrInterface struct {
+	VDom VDom
+	Any  interface{}
 }
 
 func parseModuleExport(i interface{}) (m ModuleExport, err error) {
-	var def Htmler
+	var vDomOrInterface VDomOrInterface
+
 	switch t := i.(type) {
 	case map[string]interface{}:
 		switch t := t["default"].(type) {
@@ -347,28 +362,22 @@ func parseModuleExport(i interface{}) (m ModuleExport, err error) {
 				if err != nil {
 					return m, err
 				}
-				def, err = tryToHtmler(val.Export())
-				if err != nil {
-					return m, err
-				}
+				vDomOrInterface.VDom, _ = tryToVDom(val.Export())
 			} else {
 				// for export default ""
-				def, err = tryToHtmler(t.Export())
-				if err != nil {
-					return m, err
-				}
+				vDomOrInterface.VDom, _ = tryToVDom(t.Export())
 			}
 		default:
-			def, err = tryToHtmler(t)
-			if err != nil {
-				return m, err
-			}
+			vDomOrInterface.VDom, _ = tryToVDom(t)
 		}
 
+		if vDomOrInterface.VDom == nil {
+			vDomOrInterface.Any = t
+		}
 		delete(t, "default")
 		return ModuleExport{
-			Def: def,
-			Map: t,
+			Default: vDomOrInterface,
+			Exports: t,
 		}, nil
 	default:
 		return ModuleExport{}, fmt.Errorf("export value type expect 'map[string]interface{}', actual '%T'", i)
@@ -384,20 +393,6 @@ func tryToVDom(i interface{}) (VDom, error) {
 		return t, nil
 	default:
 		return nil, fmt.Errorf("ToVDom error: export value type expect 'map[string]interface{}', actual '%T'", i)
-	}
-}
-
-func tryToHtmler(i interface{}) (Htmler, error) {
-	if i == nil {
-		return nil, nil
-	}
-	switch t := i.(type) {
-	case map[string]interface{}:
-		return VDom(t), nil
-	case string:
-		return stringHtml(t), nil
-	default:
-		return nil, fmt.Errorf("tryToHtmler error: export value type expect 'map[string]interface{}' or 'string', actual '%T'", i)
 	}
 }
 
@@ -570,10 +565,6 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 //}
 
 type VDom map[string]interface{}
-
-func (v VDom) ToHtml() string {
-	return v.Render()
-}
 
 func (v VDom) VDom() VDom {
 	return v
@@ -794,7 +785,8 @@ func (v VDom) String() string {
 func (v VDom) string(indent int) string {
 	var s strings.Builder
 
-	nodeName := v["nodeName"].(string)
+	i := v["nodeName"]
+	nodeName, _ := i.(string)
 	attr := v["attributes"]
 	var children interface{}
 	if attr != nil {

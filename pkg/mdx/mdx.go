@@ -40,13 +40,54 @@ func (e *mdJsx) Extend(m goldmark.Markdown) {
 		)
 	}
 
+	// 如果是 md 格式，则需要将 jsx 语法字符（如 {}）解析为 html 编码
+	writer := &jsxWriter{encode: e.format == Md}
 	m.Renderer().AddOptions(renderer.WithNodeRenderers(
-		util.Prioritized(&JsxRender{}, 10),
+		util.Prioritized(&JsxRender{w: writer}, 10),
 	))
+
+	m.Renderer().AddOptions(
+		html.WithUnsafe(),
+		html.WithXHTML(),
+		html.WithWriter(writer),
+	)
+}
+
+type jsxWriter struct {
+	encode bool
+}
+
+// Processing jsx syntax strings
+// {: &#123;
+// }: &#125;
+// <: &lt;
+// >: &gt;
+func (j *jsxWriter) encodeJsx(s []byte) []byte {
+	s = bytes.ReplaceAll(s, []byte("{"), []byte("&#123;"))
+	s = bytes.ReplaceAll(s, []byte("}"), []byte("&#125;"))
+	s = bytes.ReplaceAll(s, []byte("<"), []byte("&lt;"))
+	s = bytes.ReplaceAll(s, []byte(">"), []byte("&gt;"))
+	return s
+}
+
+func (j *jsxWriter) Write(writer util.BufWriter, source []byte) {
+	j.SecureWrite(writer, source)
+}
+
+func (j *jsxWriter) RawWrite(writer util.BufWriter, source []byte) {
+	writer.Write(source)
+}
+
+func (j *jsxWriter) SecureWrite(writer util.BufWriter, source []byte) {
+	if j.encode {
+		writer.Write(j.encodeJsx(source))
+	} else {
+		writer.Write(source)
+	}
 }
 
 type JsxRender struct {
-	htmlrender html.Renderer
+	w html.Writer
 }
 
 func (r *JsxRender) writeLines(w util.BufWriter, source []byte, n ast.Node) {
@@ -56,6 +97,11 @@ func (r *JsxRender) writeLines(w util.BufWriter, source []byte, n ast.Node) {
 		w.Write(line.Value(source))
 	}
 }
+func (j *JsxRender) writeHtmlAttr(w util.BufWriter, source string) {
+	w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
+	json.NewEncoder(w).Encode(source)
+	w.WriteString("}}")
+}
 
 func (j *JsxRender) renderFencedCodeBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	n := node.(*ast.FencedCodeBlock)
@@ -64,9 +110,9 @@ func (j *JsxRender) renderFencedCodeBlock(w util.BufWriter, source []byte, node 
 		language := n.Language(source)
 		if language != nil {
 			_, _ = w.WriteString(" class=\"language-")
+			j.w.Write(w, language)
 			_, _ = w.WriteString("\"")
 		}
-		w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
 
 		var body bytes.Buffer
 		l := n.Lines().Len()
@@ -74,9 +120,10 @@ func (j *JsxRender) renderFencedCodeBlock(w util.BufWriter, source []byte, node 
 			line := n.Lines().At(i)
 			body.Write(line.Value(source))
 		}
-		json.NewEncoder(w).Encode(body.String())
+		if body.Len() > 0 {
+			j.writeHtmlAttr(w, body.String())
+		}
 
-		w.WriteString("}}")
 		_ = w.WriteByte('>')
 	} else {
 		_, _ = w.WriteString("</code></pre>\n")
@@ -87,8 +134,6 @@ func (j *JsxRender) renderFencedCodeBlock(w util.BufWriter, source []byte, node 
 func (r *JsxRender) renderCodeBlock(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		_, _ = w.WriteString("<pre><code")
-		// den
-		w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
 
 		var body bytes.Buffer
 		l := n.Lines().Len()
@@ -96,9 +141,8 @@ func (r *JsxRender) renderCodeBlock(w util.BufWriter, source []byte, n ast.Node,
 			line := n.Lines().At(i)
 			body.Write(line.Value(source))
 		}
-		json.NewEncoder(w).Encode(body.String())
 
-		w.WriteString("}}")
+		r.writeHtmlAttr(w, body.String())
 		_ = w.WriteByte('>')
 	} else {
 		_, _ = w.WriteString("</code></pre>\n")
@@ -110,7 +154,6 @@ func (j *JsxRender) renderHTMLBlock(w util.BufWriter, source []byte, node ast.No
 	n := node.(*ast.HTMLBlock)
 
 	if entering {
-
 		// script|pre|style|textarea
 		if n.HTMLBlockType == ast.HTMLBlockType1 {
 			var body bytes.Buffer
@@ -136,25 +179,19 @@ func (j *JsxRender) renderHTMLBlock(w util.BufWriter, source []byte, node ast.No
 
 			tagStart := bodys[:tagStartIndex]
 			w.Write(tagStart)
-
-			w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
-
-			json.NewEncoder(w).Encode(string(tagBody))
-
-			w.WriteString("}}>")
+			j.writeHtmlAttr(w, string(tagBody))
 			w.Write(tagEnd)
-
 		} else {
 			l := n.Lines().Len()
 			for i := 0; i < l; i++ {
 				line := n.Lines().At(i)
-				w.Write(line.Value(source))
+				j.w.SecureWrite(w, line.Value(source))
 			}
 		}
 	} else {
 		if n.HasClosure() {
 			closure := n.ClosureLine
-			w.Write(closure.Value(source))
+			j.w.SecureWrite(w, closure.Value(source))
 		}
 	}
 	return ast.WalkContinue, nil
@@ -167,17 +204,17 @@ func (j *JsxRender) renderJsxBlock(w util.BufWriter, src []byte, node ast.Node, 
 	lines := node.Lines()
 	for i := 0; i < lines.Len(); i++ {
 		line := lines.At(i)
-		w.Write(line.Value(src))
+		j.w.RawWrite(w, line.Value(src))
 	}
 
 	return ast.WalkContinue, nil
-
 }
 
 func (j *JsxRender) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindFencedCodeBlock, j.renderFencedCodeBlock)
 	reg.Register(ast.KindHTMLBlock, j.renderHTMLBlock)
 	reg.Register(ast.KindCodeBlock, j.renderCodeBlock)
+	//reg.Register(ast.KindParagraph, j.renderCodeBlock)
 	reg.Register(jsxKind, j.renderJsxBlock)
 }
 

@@ -240,5 +240,6 @@ func TestExec(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Logf("%+v", n.Def.ToHtml())
+	t.Logf("%+v", n.Default.VDom)
+	t.Logf("%+v", n.Exports)
 }
