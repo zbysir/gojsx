@@ -32,6 +32,7 @@ const (
 )
 
 type EsBuildTransform struct {
+	debug           bool
 	minify          bool
 	markdownOptions []goldmark.Option
 	markdownExport  func(ctx parser.Context, n ast.Node, src []byte) map[string]interface{}
@@ -122,7 +123,9 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 
 	doc := md.Parser().Parse(text.NewReader(src), parser.WithContext(ctx))
 
-	doc.Dump(src, 1)
+	if e.debug {
+		doc.Dump(src, 1)
+	}
 
 	tocTree, err := toc.Inspect(doc, src)
 	if err != nil {
