@@ -65,6 +65,8 @@ fsd<><@EOI3u4iuO#$U#($U#94u8u8
 ;;;
 <><<<><?>
 
+<Toc items = {toc}></Toc>
+
 ## h2`), TransformerFormatIIFE)
 		if err != nil {
 			t.Fatal(err)

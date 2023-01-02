@@ -62,11 +62,18 @@ type jsxWriter struct {
 // }: &#125;
 // <: &lt;
 // >: &gt;
-func (j *jsxWriter) encodeJsx(s []byte) []byte {
+func (j *jsxWriter) encodeJsxInsecure(s []byte) []byte {
 	s = bytes.ReplaceAll(s, []byte("{"), []byte("&#123;"))
 	s = bytes.ReplaceAll(s, []byte("}"), []byte("&#125;"))
 	s = bytes.ReplaceAll(s, []byte("<"), []byte("&lt;"))
 	s = bytes.ReplaceAll(s, []byte(">"), []byte("&gt;"))
+	return s
+}
+
+func (j *jsxWriter) encodeJsxTag(s []byte) []byte {
+	s = jsxTagStartOrEndReg.ReplaceAllFunc(s, func(i []byte) []byte {
+		return bytes.ToLower(i)
+	})
 	return s
 }
 
@@ -75,12 +82,13 @@ func (j *jsxWriter) Write(writer util.BufWriter, source []byte) {
 }
 
 func (j *jsxWriter) RawWrite(writer util.BufWriter, source []byte) {
-	writer.Write(source)
+	writer.Write(j.encodeJsxTag(source))
 }
 
+// SecureWrite 用于写入存文本
 func (j *jsxWriter) SecureWrite(writer util.BufWriter, source []byte) {
 	if j.encode {
-		writer.Write(j.encodeJsx(source))
+		writer.Write(j.encodeJsxInsecure(source))
 	} else {
 		writer.Write(source)
 	}
@@ -97,6 +105,7 @@ func (r *JsxRender) writeLines(w util.BufWriter, source []byte, n ast.Node) {
 		w.Write(line.Value(source))
 	}
 }
+
 func (j *JsxRender) writeHtmlAttr(w util.BufWriter, source string) {
 	w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
 	json.NewEncoder(w).Encode(source)
@@ -197,6 +206,21 @@ func (j *JsxRender) renderHTMLBlock(w util.BufWriter, source []byte, node ast.No
 	return ast.WalkContinue, nil
 }
 
+func (r *JsxRender) renderRawHTML(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkSkipChildren, nil
+	}
+	n := node.(*ast.RawHTML)
+	l := n.Segments.Len()
+	for i := 0; i < l; i++ {
+		segment := n.Segments.At(i)
+
+		//w.Write(segment.Value(s))
+		r.w.RawWrite(w, segment.Value(source))
+	}
+	return ast.WalkSkipChildren, nil
+}
+
 func (j *JsxRender) renderJsxBlock(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
@@ -213,6 +237,7 @@ func (j *JsxRender) renderJsxBlock(w util.BufWriter, src []byte, node ast.Node, 
 func (j *JsxRender) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindFencedCodeBlock, j.renderFencedCodeBlock)
 	reg.Register(ast.KindHTMLBlock, j.renderHTMLBlock)
+	reg.Register(ast.KindRawHTML, j.renderRawHTML)
 	reg.Register(ast.KindCodeBlock, j.renderCodeBlock)
 	//reg.Register(ast.KindParagraph, j.renderCodeBlock)
 	reg.Register(jsxKind, j.renderJsxBlock)
@@ -272,7 +297,8 @@ func (j *jsxParser) Trigger() []byte {
 }
 
 // 匹配 <A> or <>
-var htmlTagStartReg = regexp.MustCompile(`^ {0,3}<(([A-Z]+[a-zA-Z0-9\-]*)|>)`)
+var jsxTagStartReg = regexp.MustCompile(`^ {0,3}<(([A-Z]+[a-zA-Z0-9\-]*)|>)`)
+var jsxTagStartOrEndReg = regexp.MustCompile(`^ {0,3}</?(([A-Z]+[a-zA-Z0-9\-]*)|>)`)
 
 func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
 	node := &JsxNode{
@@ -283,7 +309,7 @@ func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context)
 	if pos := pc.BlockOffset(); pos < 0 || line[pos] != '<' {
 		return nil, parser.NoChildren
 	}
-	match := htmlTagStartReg.FindAllSubmatch(line, -1)
+	match := jsxTagStartReg.FindAllSubmatch(line, -1)
 	if match == nil {
 		return nil, parser.NoChildren
 	}
