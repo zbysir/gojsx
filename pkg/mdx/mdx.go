@@ -82,7 +82,11 @@ func (j *jsxWriter) Write(writer util.BufWriter, source []byte) {
 }
 
 func (j *jsxWriter) RawWrite(writer util.BufWriter, source []byte) {
-	writer.Write(j.encodeJsxTag(source))
+	if j.encode {
+		writer.Write(j.encodeJsxTag(source))
+	} else {
+		writer.Write(source)
+	}
 }
 
 // SecureWrite 用于写入存文本

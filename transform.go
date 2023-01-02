@@ -90,7 +90,8 @@ func toTocItems(t toc.Items) []tableOfContentItem {
 // 将 md 转换成 jsx 语法
 // TODO 目前的逻辑是：在渲染的时候将特殊字符替换成安全的 html 编码，而不理解 html（解析 ast），这有个问题：无法处理在 md 中 <Tag name={a}/> 这样的语法转换。
 //  正确它应该会被转换成 <tag name="{a}" /> 这需要解析 ast，将所有 attribute 处理。
-//  所以更正确的做法还是应该像 htmr 库一样解析 ast 之后再转换成 jsx 语法，但目前 golang html 解析器都不太适用，需要自己做适配，有空了再实现。
+//  还有 md 解析器在处理 jsx 时，有时候会解析成 Text，有时候会解析成 RawHTML，没办法处理。
+//  所以更正确的做法还是应该像 htmr 库一样解析 ast 之后再转换成 jsx 语法，但目前 golang html 解析器都不太适用带有 jsx 内容的 html，需要自己做适配，有空了再实现。
 func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte, err error) {
 	// 将 md 处理成 xhtml
 	var mdHtml bytes.Buffer
