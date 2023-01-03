@@ -98,7 +98,6 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 	var mdHtml bytes.Buffer
 	ctx := parser.NewContext()
 	opts := []goldmark.Option{
-
 		goldmark.WithExtensions(
 			meta.Meta,
 			extension.GFM,
@@ -254,6 +253,7 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 		MinifySyntax:      e.minify,
 		MinifyWhitespace:  e.minify,
 		GlobalName:        globalName,
+		Footer:            globalName,
 	})
 
 	if len(result.Errors) != 0 {
@@ -267,9 +267,5 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 	}
 
 	code = result.Code
-	if globalName != "" {
-		// 如果是 IIFE 格式，则始终将结果导出
-		code = bytes.TrimPrefix(code, []byte(fmt.Sprintf("var %s = ", globalName)))
-	}
 	return code, nil
 }

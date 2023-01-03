@@ -110,7 +110,10 @@ func (r *JsxRender) writeLines(w util.BufWriter, source []byte, n ast.Node) {
 	}
 }
 
-func (j *JsxRender) writeHtmlAttr(w util.BufWriter, source string) {
+func (j *JsxRender) writeDangerouslyHtmlAttr(w util.BufWriter, source string) {
+	if source == "" {
+		return
+	}
 	w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
 	json.NewEncoder(w).Encode(source)
 	w.WriteString("}}")
@@ -134,7 +137,7 @@ func (j *JsxRender) renderFencedCodeBlock(w util.BufWriter, source []byte, node 
 			body.Write(line.Value(source))
 		}
 		if body.Len() > 0 {
-			j.writeHtmlAttr(w, body.String())
+			j.writeDangerouslyHtmlAttr(w, body.String())
 		}
 
 		_ = w.WriteByte('>')
@@ -155,11 +158,33 @@ func (r *JsxRender) renderCodeBlock(w util.BufWriter, source []byte, n ast.Node,
 			body.Write(line.Value(source))
 		}
 
-		r.writeHtmlAttr(w, body.String())
+		r.writeDangerouslyHtmlAttr(w, body.String())
 		_ = w.WriteByte('>')
 	} else {
 		_, _ = w.WriteString("</code></pre>\n")
 	}
+	return ast.WalkContinue, nil
+}
+
+func (r *JsxRender) renderCodeSpan(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		_, _ = w.WriteString("<code")
+		var bs bytes.Buffer
+		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+			segment := c.(*ast.Text).Segment
+			value := segment.Value(source)
+			if bytes.HasSuffix(value, []byte("\n")) {
+				bs.Write(value[:len(value)-1])
+				bs.Write([]byte(" "))
+			} else {
+				bs.Write(value)
+			}
+		}
+		r.writeDangerouslyHtmlAttr(w, bs.String())
+		_, _ = w.WriteString(">")
+		return ast.WalkSkipChildren, nil
+	}
+	_, _ = w.WriteString("</code>")
 	return ast.WalkContinue, nil
 }
 
@@ -192,7 +217,7 @@ func (j *JsxRender) renderHTMLBlock(w util.BufWriter, source []byte, node ast.No
 
 			tagStart := bodys[:tagStartIndex]
 			w.Write(tagStart)
-			j.writeHtmlAttr(w, string(tagBody))
+			j.writeDangerouslyHtmlAttr(w, string(tagBody))
 			w.Write(tagEnd)
 		} else {
 			l := n.Lines().Len()
@@ -243,7 +268,7 @@ func (j *JsxRender) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindHTMLBlock, j.renderHTMLBlock)
 	reg.Register(ast.KindRawHTML, j.renderRawHTML)
 	reg.Register(ast.KindCodeBlock, j.renderCodeBlock)
-	//reg.Register(ast.KindParagraph, j.renderCodeBlock)
+	reg.Register(ast.KindCodeSpan, j.renderCodeSpan)
 	reg.Register(jsxKind, j.renderJsxBlock)
 }
 

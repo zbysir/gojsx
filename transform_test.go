@@ -6,6 +6,7 @@ import (
 
 func TestTransform(t *testing.T) {
 	x := NewEsBuildTransform(EsBuildTransformOptions{})
+	x.debug = true
 
 	t.Run("json", func(t *testing.T) {
 		b, err := x.Transform("1.json", []byte(`{"a":1}`), TransformerFormatCommonJS)
@@ -36,14 +37,6 @@ func TestTransform(t *testing.T) {
 	})
 
 	t.Run("md", func(t *testing.T) {
-		b, err := x.Transform("1.md", []byte(`## h2`), TransformerFormatIIFE)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		t.Logf("%s", b)
-	})
-	t.Run("md", func(t *testing.T) {
 		b, err := x.Transform("1.md", []byte(`
 ---
 {a: 1}
@@ -67,17 +60,7 @@ fsd<><@EOI3u4iuO#$U#($U#94u8u8
 
 <Toc items = {toc}></Toc>
 
-export const Toc = ({title, items,id, level=0}) => {
-  if (title) {
-    return <li style={{paddingLeft: level*20+'px'}}>
-      <a href={"#"+id}>{title}</a>
-      {items.map(i => <Toc {...i} level={level+1}></Toc>)}
-    </li>
-  } else {
-      return items.map(i => <Toc {...i} level={level+1}></Toc>)
-  }
-}
-
+`+"有不闭合的标签，如 `<meta charset=\"UTF-8\"> `"+`
 ## h2`), TransformerFormatIIFE)
 		if err != nil {
 			t.Fatal(err)
