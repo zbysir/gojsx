@@ -11,6 +11,7 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
+	htmlstd "html"
 	"regexp"
 )
 
@@ -83,8 +84,10 @@ func (j *jsxWriter) Write(writer util.BufWriter, source []byte) {
 
 func (j *jsxWriter) RawWrite(writer util.BufWriter, source []byte) {
 	if j.encode {
+		//template.HTMLEscape(writer, j.encodeJsxTag(source))
 		writer.Write(j.encodeJsxTag(source))
 	} else {
+		//template.HTMLEscape(writer, source)
 		writer.Write(source)
 	}
 }
@@ -115,7 +118,7 @@ func (j *JsxRender) writeDangerouslyHtmlAttr(w util.BufWriter, source string) {
 		return
 	}
 	w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
-	json.NewEncoder(w).Encode(source)
+	json.NewEncoder(w).Encode(htmlstd.EscapeString(source))
 	w.WriteString("}}")
 }
 
@@ -134,8 +137,12 @@ func (j *JsxRender) renderFencedCodeBlock(w util.BufWriter, source []byte, node 
 		l := n.Lines().Len()
 		for i := 0; i < l; i++ {
 			line := n.Lines().At(i)
+			//j.w.RawWrite(w, line.Value(source))
 			body.Write(line.Value(source))
 		}
+		//json.NewEncoder(w).Encode(body.String())
+		//j.w.Write(w, body.Bytes())
+
 		if body.Len() > 0 {
 			j.writeDangerouslyHtmlAttr(w, body.String())
 		}

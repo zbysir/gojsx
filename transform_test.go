@@ -61,6 +61,8 @@ fsd<><@EOI3u4iuO#$U#($U#94u8u8
 <Toc items = {toc}></Toc>
 
 `+"有不闭合的标签，如 `<meta charset=\"UTF-8\"> `"+`
+
+`+"我们要渲染的模板是这个样子的\n```vue\n<template>\n  <div>\n    <span class=\"bg-gray\" :class=\"cus_class\" :style=\"{'font-size': fontSize+'px'}\"> {{msg}} </span>\n  </div>\n</template>\n```"+`
 ## h2`), TransformerFormatIIFE)
 		if err != nil {
 			t.Fatal(err)
