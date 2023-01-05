@@ -330,7 +330,7 @@ func (l *Lexer) shiftStartTag() (TokenType, []byte) {
 		}
 		l.r.Move(1)
 	}
-	l.text = parse.ToLower(l.r.Lexeme()[1:])
+	l.text = parse.ToLower(parse.Copy(l.r.Lexeme()[1:]))
 	if h := ToHash(l.text); h == Textarea || h == Title || h == Style || h == Xmp || h == Iframe || h == Script || h == Plaintext || h == Svg || h == Math {
 		if h == Svg || h == Math {
 			data := l.shiftXML(h)
@@ -403,7 +403,7 @@ func (l *Lexer) shiftAttribute() []byte {
 		l.r.Rewind(nameEnd)
 		l.attrVal = nil
 	}
-	l.text = parse.ToLower(l.r.Lexeme()[nameStart:nameEnd])
+	l.text = parse.ToLower(parse.Copy(l.r.Lexeme()[nameStart:nameEnd]))
 	return l.r.Shift()
 }
 
@@ -430,7 +430,7 @@ func (l *Lexer) shiftEndTag() []byte {
 		break
 	}
 	l.text = l.text[:end]
-	return parse.ToLower(l.r.Shift())
+	return parse.ToLower(parse.Copy(l.r.Shift()))
 }
 
 // shiftXML parses the content of a svg or math tag according to the XML 1.1 specifications, including the tag itself.

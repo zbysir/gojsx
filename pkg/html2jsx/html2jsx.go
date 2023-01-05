@@ -93,6 +93,8 @@ func (c *ctx) toJsxToken(tt htmlparser.TokenType, src []byte, enableJsx bool) []
 		} else if len(tag) == 0 {
 			// for <
 			src = encodeJsxInsecure(src)
+		} else {
+			src = bytes.ToLower(src)
 		}
 		c.currStartTag = tag
 	case htmlparser.StartTagVoidToken:
@@ -113,6 +115,8 @@ func (c *ctx) toJsxToken(tt htmlparser.TokenType, src []byte, enableJsx bool) []
 		// for </>
 		if len(c.currStartTag) == 0 {
 			src = encodeJsxInsecure(src)
+		} else {
+			src = bytes.ToLower(src)
 		}
 	case htmlparser.TextToken:
 		if !enableJsx {

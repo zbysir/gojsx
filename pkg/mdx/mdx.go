@@ -40,6 +40,7 @@ func (e *mdJsx) Extend(m goldmark.Markdown) {
 				util.Prioritized(NewJsCodeParser(), 0),
 				util.Prioritized(NewJsxParser(), 10),
 			),
+			parser.WithInlineParsers(util.Prioritized(NewJsxParser(), 0)),
 		)
 		m.Renderer().AddOptions(renderer.WithNodeRenderers(
 			util.Prioritized(&JsxRender{}, 10),
@@ -124,7 +125,7 @@ func (j *JsxRender) renderJsxBlock(w util.BufWriter, src []byte, node ast.Node, 
 		return ast.WalkContinue, nil
 	}
 	jsxNode := node.(*JsxNode)
-	w.Write(jsxNodePlaceholder(jsxNode.count))
+	w.Write(jsxNodePlaceholder(jsxNode.index))
 	return ast.WalkContinue, nil
 }
 
@@ -141,7 +142,7 @@ var jsxKind = ast.NewNodeKind("Jsx")
 type JsxNode struct {
 	ast.BaseBlock
 	tag   string
-	count int // 几个
+	index int // 几个
 }
 
 func (j *JsxNode) Kind() ast.NodeKind {
@@ -171,15 +172,48 @@ type jsxParser struct {
 func NewJsxParser() parser.BlockParser {
 	return &jsxParser{}
 }
+func (j *jsxParser) saveJsxNode(node *JsxNode, segment text.Segment, pc parser.Context) {
+	jsxs := GetJsxCode(pc)
+	if jsxs == nil {
+		jsxs = text.NewSegments()
+	}
+	node.index = jsxs.Len()
+	jsxs.Append(segment)
+	pc.Set(jsxCodeKey, jsxs)
+}
 
-// InlineParser 暂时不实现
-//func (j *jsxParser) Parse(parent ast.Node, reader text.Reader, pc parser.Context) ast.Node {
-//	panic("implement me")
-//}
+func (j *jsxParser) Parse(parent ast.Node, reader text.Reader, pc parser.Context) ast.Node {
+	line, segment := reader.PeekLine()
+
+	match := jsxTagStartReg.FindAllSubmatch(line, -1)
+	if match == nil {
+		return nil
+	}
+	bs := reader.Value(segment)
+
+	start, end, ok, err := parseTagToClose(bytes.NewBuffer(bs))
+	if err != nil {
+		return nil
+	}
+	if !ok {
+		return nil
+	}
+
+	node := &JsxNode{
+		BaseBlock: ast.BaseBlock{},
+	}
+
+	segment = text.NewSegment(start+segment.Start, end+segment.Start)
+
+	node.Lines().Append(segment)
+	reader.Advance(segment.Len())
+
+	j.saveJsxNode(node, segment, pc)
+	return node
+}
 
 var _ parser.BlockParser = (*jsxParser)(nil)
-
-//var _ parser.InlineParser = (*jsxParser)(nil) // InlineParser 暂时不实现
+var _ parser.InlineParser = (*jsxParser)(nil)
 
 func (j *jsxParser) Trigger() []byte {
 	return []byte{'<'}
@@ -207,8 +241,7 @@ func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context)
 	offset := s.Start
 	bs := reader.Source()[offset:]
 
-	buf := bytes.NewBufferString(string(bs))
-	start, end, ok, err := parseTagToClose(buf)
+	start, end, ok, err := parseTagToClose(bytes.NewBuffer(bs))
 	if err != nil {
 		return nil, parser.NoChildren
 	}
@@ -233,7 +266,7 @@ func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context)
 	if jsxs == nil {
 		jsxs = text.NewSegments()
 	}
-	node.count = jsxs.Len()
+	node.index = jsxs.Len()
 	jsxs.Append(segment)
 	pc.Set(jsxCodeKey, jsxs)
 

@@ -68,6 +68,21 @@ const a = "3233"
 			In:   readFile("./testdata/introduction.md"),
 			Out:  readFile("./testdata/introduction.md.out.txt"),
 		},
+
+		{
+			Name: "Inline",
+			In:   `# h1 <B a={1}/> <> { 1 } </> { 2} hh`,
+			Out: `<h1>h1 <B a={1}/> <> { 1 } </> { 2} hh</h1>
+`,
+		},
+		{
+			Name: "InlineX",
+			In: `# h1 <B 
+a={1}/> <> { 1 } </> hh`,
+			Out: `<h1>h1 &lt;B</h1>
+<p>a={1}/&gt; <> { 1 } </> hh</p>
+`,
+		},
 	}
 
 	opts := []goldmark.Option{
