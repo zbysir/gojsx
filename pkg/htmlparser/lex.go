@@ -111,7 +111,9 @@ func (l *Lexer) Next() (TokenType, []byte) {
 		} else if c != '>' && (c != '/' || l.r.Peek(1) != '>') {
 			return AttributeToken, l.shiftAttribute()
 		}
-		l.r.Skip()
+
+		// modify: remove l.r.Skip()
+		//l.r.Skip()
 		l.inTag = false
 		if c == '/' {
 			l.r.Move(2)
@@ -134,9 +136,10 @@ func (l *Lexer) Next() (TokenType, []byte) {
 		c = l.r.Peek(0)
 		if c == '<' {
 			c = l.r.Peek(1)
+			// modeify: delete l.r.Peek(2) != '>'
 			isEndTag := c == '/' && (l.r.Peek(2) != 0 || l.r.PeekErr(2) == nil)
-
 			if l.r.Pos() > 0 {
+				// modify: add || c == '>'
 				if isEndTag || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '!' || c == '?' || c == '>' {
 					// return currently buffered texttoken so that we can return tag next iteration
 					l.text = l.r.Shift()
@@ -145,10 +148,12 @@ func (l *Lexer) Next() (TokenType, []byte) {
 			} else if isEndTag {
 				l.r.Move(2)
 				// only endtags that are not followed by > or EOF arrive here
+				// modify: add && c != '>'
 				if c = l.r.Peek(0); !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z') && c != '>' {
 					return CommentToken, l.shiftBogusComment()
 				}
 				return EndTagToken, l.shiftEndTag()
+				// modify: add || c == '>'
 			} else if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || c == '>' {
 				l.r.Move(1)
 				l.inTag = true
@@ -348,13 +353,56 @@ func (l *Lexer) shiftAttribute() []byte {
 	nameStart := l.r.Pos()
 	var c byte
 	for { // attribute name state
-		if c = l.r.Peek(0); c == '>' || c == '/' && l.r.Peek(1) == '>' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == 0 && l.r.Err() != nil {
+		if c = l.r.Peek(0); c == ' ' || c == '=' || c == '>' || c == '/' && l.r.Peek(1) == '>' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == 0 && l.r.Err() != nil {
 			break
 		}
 		l.r.Move(1)
 	}
 	nameEnd := l.r.Pos()
-
+	for { // after attribute name state
+		if c = l.r.Peek(0); c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' {
+			l.r.Move(1)
+			continue
+		}
+		break
+	}
+	if c == '=' {
+		l.r.Move(1)
+		for { // before attribute value state
+			if c = l.r.Peek(0); c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' {
+				l.r.Move(1)
+				continue
+			}
+			break
+		}
+		attrPos := l.r.Pos()
+		delim := c
+		if delim == '"' || delim == '\'' { // attribute value single- and double-quoted state
+			l.r.Move(1)
+			for {
+				c := l.r.Peek(0)
+				if c == delim {
+					l.r.Move(1)
+					break
+				} else if c == 0 && l.r.Err() != nil {
+					break
+				}
+				l.r.Move(1)
+			}
+		} else { // attribute value unquoted state
+			for {
+				// modify: add || c == '/'
+				if c := l.r.Peek(0); c == ' ' || c == '/' || c == '>' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == 0 && l.r.Err() != nil {
+					break
+				}
+				l.r.Move(1)
+			}
+		}
+		l.attrVal = l.r.Lexeme()[attrPos:]
+	} else {
+		l.r.Rewind(nameEnd)
+		l.attrVal = nil
+	}
 	l.text = parse.ToLower(l.r.Lexeme()[nameStart:nameEnd])
 	return l.r.Shift()
 }

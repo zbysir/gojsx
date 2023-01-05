@@ -85,11 +85,9 @@
 <hr />
 <h2>九、代码块</h2>
 <p>使用四个空格缩进表示代码块，例如</p>
-<pre><code dangerouslySetInnerHTML={{ __html: "public class HelloWorld\n{\n    public static void main(String[] args)\n    { \n        System.out.println( \"Hello, World!\" );\n    }\n}\n"
-}}></code></pre>
+<pre dangerouslySetInnerHTML={{ __html: "<code>public class HelloWorld\n{\n    public static void main(String[] args)\n    { \n        System.out.println( &quot;Hello, World!&quot; );\n    }\n}\n</code>" }}></pre>
 <p>一些 IDE 支持行数提示和着色，一般使用三个 ` 表示，例如</p>
-<pre><code dangerouslySetInnerHTML={{ __html: "public class HelloWorld\n{\n    public static void main(String[] args)\n    { \n        System.out.println( \"Hello, World!\" );\n    }\n}\n"
-}}></code></pre>
+<pre dangerouslySetInnerHTML={{ __html: "<code>public class HelloWorld\n{\n    public static void main(String[] args)\n    { \n        System.out.println( &quot;Hello, World!&quot; );\n    }\n}\n</code>" }}></pre>
 <hr />
 <h2>十、表格</h2>
 <p>直接看例子吧，第二行的 <code>---:</code> 表示了对齐方式，默认<strong>左对齐</strong>，还有<strong>右对齐</strong>和<strong>居中</strong></p>

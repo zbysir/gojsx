@@ -1,8 +1,8 @@
 # gojsx
 
-Render Jsx / Tsx / MD / MDX (experimental) by Golang.
+Render Jsx / Tsx / MD / MDX by Golang.
 
-使用 Go 渲染 Jsx、Tsx、MD、MDX（实验性的）。
+使用 Go 渲染 Jsx、Tsx、MD、MDX。
 
 Features:
 - Pure Golang, fast and simple
@@ -59,7 +59,7 @@ func TestJsx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}})
+	s, err := j.Render("./test/Index.jsx", map[string]interface{}{"li": []int64{1, 2, 3, 4}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +75,11 @@ func TestJsx(t *testing.T) {
 不过 goja 只支持 es5.1 语法，高级语法如 TS、ES6 则需要通过 babel 转换，babel 提供一个浏览器运行版本，刚好 goja 可以运行它。不过 babel 编译是巨慢的，好在还有 [esbuild](https://github.com/evanw/esbuild) 可以做同样的事。所以 gojsx 使用 esbuild 作为编译器。
 
 将编译之后的 jsx 交给 goja 运行，能得到一个虚拟节点树，然后再由 golang 进行渲染得到 HTML。
+
+### MDX
+1. 从 md 解析出 Jsx Node 和 JavaScript，渲染得到 html（排除 Jsx Node 与 JavaScript）
+2. html2jsx
+3. 组装 第一步得到的 js 代码 和 第二步得到的 Jsx Node。
 
 ## Performance
 

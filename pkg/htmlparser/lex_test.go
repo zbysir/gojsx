@@ -12,6 +12,8 @@ var JsxDom = []byte(`
 
 <Toc item={item} enable={true} style={{margeTop: '1px'}} className="toc" disabled></Toc>
 <Toc item={item}/>
+
+<></>
 `)
 
 func TestName(t *testing.T) {

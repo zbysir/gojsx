@@ -3,7 +3,7 @@ package mdx
 import (
 	"bytes"
 	"github.com/tdewolff/parse/v2"
-	"github.com/zbysir/gojsx/pkg/mdx/htmlparser"
+	"github.com/zbysir/gojsx/pkg/htmlparser"
 	"io"
 )
 

@@ -58,6 +58,10 @@ fsd<><@EOI3u4iuO#$U#($U#94u8u8
 ;;;
 <><<<><?>
 
+<script>
+ console.log({a: 1})
+</script>
+
 <Toc items = {toc}></Toc>
 
 `+"有不闭合的标签，如 `<meta charset=\"UTF-8\"> `"+`
@@ -85,8 +89,7 @@ fsd<><@EOI3u4iuO#$U#($U#94u8u8
 		t.Logf("%s", b)
 	})
 	t.Run("mdx2", func(t *testing.T) {
-		b, err := x.Transform("1.mdx", []byte(`
----
+		b, err := x.Transform("1.mdx", []byte(`---
 logo: Hollow
 ---
 
@@ -107,8 +110,3 @@ const history = [
 		t.Logf("%s", b)
 	})
 }
-
-//func TestHtml(t *testing.T) {
-//	url.PathEscape()
-//
-//}

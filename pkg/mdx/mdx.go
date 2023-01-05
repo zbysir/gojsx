@@ -2,7 +2,6 @@ package mdx
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -11,7 +10,8 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
-	htmlstd "html"
+	html2jsx2 "github.com/zbysir/gojsx/pkg/html2jsx"
+	"io"
 	"regexp"
 )
 
@@ -30,6 +30,8 @@ func NewMdJsx(format MdFormat) goldmark.Extender {
 	return &mdJsx{format: format}
 }
 
+var jsxCodeKey = parser.NewContextKey()
+
 func (e *mdJsx) Extend(m goldmark.Markdown) {
 	switch e.format {
 	case Mdx:
@@ -39,243 +41,98 @@ func (e *mdJsx) Extend(m goldmark.Markdown) {
 				util.Prioritized(NewJsxParser(), 10),
 			),
 		)
+		m.Renderer().AddOptions(renderer.WithNodeRenderers(
+			util.Prioritized(&JsxRender{}, 10),
+		))
 	}
-
-	// 如果是 md 格式，则需要将 jsx 语法字符（如 {}）解析为 html 编码
-	writer := &jsxWriter{encode: e.format == Md}
-	m.Renderer().AddOptions(renderer.WithNodeRenderers(
-		util.Prioritized(&JsxRender{w: writer}, 10),
-	))
 
 	m.Renderer().AddOptions(
 		html.WithUnsafe(),
 		html.WithXHTML(),
-		html.WithWriter(writer),
 	)
+
+	parse := &WrapParser{Parser: m.Parser()}
+	m.SetParser(parse)
+	m.SetRenderer(WrapRender{Renderer: m.Renderer(), enableJsx: e.format == Mdx, parser: parse})
 }
 
-type jsxWriter struct {
-	encode bool
+type WrapParser struct {
+	parser.Parser
+	ctx parser.Context
 }
 
-// Processing jsx syntax strings
-// {: &#123;
-// }: &#125;
-// <: &lt;
-// >: &gt;
-func (j *jsxWriter) encodeJsxInsecure(s []byte) []byte {
-	s = bytes.ReplaceAll(s, []byte("{"), []byte("&#123;"))
-	s = bytes.ReplaceAll(s, []byte("}"), []byte("&#125;"))
-	s = bytes.ReplaceAll(s, []byte("<"), []byte("&lt;"))
-	s = bytes.ReplaceAll(s, []byte(">"), []byte("&gt;"))
-	return s
+func (p *WrapParser) GetContext() parser.Context {
+	return p.ctx
 }
 
-func (j *jsxWriter) encodeJsxTag(s []byte) []byte {
-	s = jsxTagStartOrEndReg.ReplaceAllFunc(s, func(i []byte) []byte {
-		return bytes.ToLower(i)
-	})
-	return s
-}
-
-func (j *jsxWriter) Write(writer util.BufWriter, source []byte) {
-	j.SecureWrite(writer, source)
-}
-
-func (j *jsxWriter) RawWrite(writer util.BufWriter, source []byte) {
-	if j.encode {
-		//template.HTMLEscape(writer, j.encodeJsxTag(source))
-		writer.Write(j.encodeJsxTag(source))
-	} else {
-		//template.HTMLEscape(writer, source)
-		writer.Write(source)
+func (p *WrapParser) Parse(reader text.Reader, opts ...parser.ParseOption) ast.Node {
+	var c parser.ParseConfig
+	for _, o := range opts {
+		o(&c)
 	}
+	if c.Context == nil {
+		c.Context = parser.NewContext()
+		opts = append(opts, parser.WithContext(c.Context))
+	}
+	p.ctx = c.Context
+
+	return p.Parser.Parse(reader, opts...)
 }
 
-// SecureWrite 用于写入存文本
-func (j *jsxWriter) SecureWrite(writer util.BufWriter, source []byte) {
-	if j.encode {
-		writer.Write(j.encodeJsxInsecure(source))
-	} else {
-		writer.Write(source)
+type WrapRender struct {
+	renderer.Renderer
+	enableJsx bool
+	parser    *WrapParser
+}
+
+func (r WrapRender) Render(w io.Writer, source []byte, n ast.Node) error {
+	var buf bytes.Buffer
+	err := r.Renderer.Render(&buf, source, n)
+	if err != nil {
+		return err
 	}
+
+	var out bytes.Buffer
+
+	err = html2jsx2.Convert(&buf, &out, r.enableJsx)
+	if err != nil {
+		return err
+	}
+
+	outbs := out.Bytes()
+
+	ctx := r.parser.GetContext()
+	if ctx != nil {
+		ts := GetJsxCode(ctx)
+		if ts != nil {
+			for i := 0; i < ts.Len(); i++ {
+				s := ts.At(i)
+				outbs = bytes.ReplaceAll(outbs, jsxNodePlaceholder(i), s.Value(source))
+			}
+		}
+	}
+
+	w.Write(outbs)
+	return nil
 }
 
 type JsxRender struct {
-	w html.Writer
-}
-
-func (r *JsxRender) writeLines(w util.BufWriter, source []byte, n ast.Node) {
-	l := n.Lines().Len()
-	for i := 0; i < l; i++ {
-		line := n.Lines().At(i)
-		w.Write(line.Value(source))
-	}
-}
-
-func (j *JsxRender) writeDangerouslyHtmlAttr(w util.BufWriter, source string) {
-	if source == "" {
-		return
-	}
-	w.WriteString(" dangerouslySetInnerHTML={{ __html: ")
-	json.NewEncoder(w).Encode(htmlstd.EscapeString(source))
-	w.WriteString("}}")
-}
-
-func (j *JsxRender) renderFencedCodeBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	n := node.(*ast.FencedCodeBlock)
-	if entering {
-		_, _ = w.WriteString("<pre><code")
-		language := n.Language(source)
-		if language != nil {
-			_, _ = w.WriteString(" class=\"language-")
-			j.w.Write(w, language)
-			_, _ = w.WriteString("\"")
-		}
-
-		var body bytes.Buffer
-		l := n.Lines().Len()
-		for i := 0; i < l; i++ {
-			line := n.Lines().At(i)
-			//j.w.RawWrite(w, line.Value(source))
-			body.Write(line.Value(source))
-		}
-		//json.NewEncoder(w).Encode(body.String())
-		//j.w.Write(w, body.Bytes())
-
-		if body.Len() > 0 {
-			j.writeDangerouslyHtmlAttr(w, body.String())
-		}
-
-		_ = w.WriteByte('>')
-	} else {
-		_, _ = w.WriteString("</code></pre>\n")
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *JsxRender) renderCodeBlock(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		_, _ = w.WriteString("<pre><code")
-
-		var body bytes.Buffer
-		l := n.Lines().Len()
-		for i := 0; i < l; i++ {
-			line := n.Lines().At(i)
-			body.Write(line.Value(source))
-		}
-
-		r.writeDangerouslyHtmlAttr(w, body.String())
-		_ = w.WriteByte('>')
-	} else {
-		_, _ = w.WriteString("</code></pre>\n")
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *JsxRender) renderCodeSpan(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		_, _ = w.WriteString("<code")
-		var bs bytes.Buffer
-		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-			segment := c.(*ast.Text).Segment
-			value := segment.Value(source)
-			if bytes.HasSuffix(value, []byte("\n")) {
-				bs.Write(value[:len(value)-1])
-				bs.Write([]byte(" "))
-			} else {
-				bs.Write(value)
-			}
-		}
-		r.writeDangerouslyHtmlAttr(w, bs.String())
-		_, _ = w.WriteString(">")
-		return ast.WalkSkipChildren, nil
-	}
-	_, _ = w.WriteString("</code>")
-	return ast.WalkContinue, nil
-}
-
-func (j *JsxRender) renderHTMLBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	n := node.(*ast.HTMLBlock)
-
-	if entering {
-		// script|pre|style|textarea
-		if n.HTMLBlockType == ast.HTMLBlockType1 {
-			var body bytes.Buffer
-			l := n.Lines().Len()
-			for i := 0; i < l; i++ {
-				line := n.Lines().At(i)
-				body.Write(line.Value(source))
-			}
-
-			// tag
-			bodys := body.Bytes()
-			tagStartIndex := bytes.Index(bodys, []byte(">"))
-			tagEndIndex := bytes.LastIndex(bodys, []byte("</"))
-
-			var tagBody []byte
-			var tagEnd []byte
-			if tagEndIndex != -1 {
-				tagBody = bodys[tagStartIndex+1 : tagEndIndex]
-				tagEnd = bodys[tagEndIndex:]
-			} else {
-				tagBody = bodys[tagStartIndex+1:]
-			}
-
-			tagStart := bodys[:tagStartIndex]
-			w.Write(tagStart)
-			j.writeDangerouslyHtmlAttr(w, string(tagBody))
-			w.Write(tagEnd)
-		} else {
-			l := n.Lines().Len()
-			for i := 0; i < l; i++ {
-				line := n.Lines().At(i)
-				j.w.SecureWrite(w, line.Value(source))
-			}
-		}
-	} else {
-		if n.HasClosure() {
-			closure := n.ClosureLine
-			j.w.SecureWrite(w, closure.Value(source))
-		}
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *JsxRender) renderRawHTML(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		return ast.WalkSkipChildren, nil
-	}
-	n := node.(*ast.RawHTML)
-	l := n.Segments.Len()
-	for i := 0; i < l; i++ {
-		segment := n.Segments.At(i)
-
-		//w.Write(segment.Value(s))
-		r.w.RawWrite(w, segment.Value(source))
-	}
-	return ast.WalkSkipChildren, nil
 }
 
 func (j *JsxRender) renderJsxBlock(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
-	lines := node.Lines()
-	for i := 0; i < lines.Len(); i++ {
-		line := lines.At(i)
-		j.w.RawWrite(w, line.Value(src))
-	}
-
+	jsxNode := node.(*JsxNode)
+	w.Write(jsxNodePlaceholder(jsxNode.count))
 	return ast.WalkContinue, nil
 }
 
+func jsxNodePlaceholder(index int) []byte {
+	return []byte(fmt.Sprintf("JSXNODE_%d_EDONXSJ", index))
+}
+
 func (j *JsxRender) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-	reg.Register(ast.KindFencedCodeBlock, j.renderFencedCodeBlock)
-	reg.Register(ast.KindHTMLBlock, j.renderHTMLBlock)
-	reg.Register(ast.KindRawHTML, j.renderRawHTML)
-	reg.Register(ast.KindCodeBlock, j.renderCodeBlock)
-	reg.Register(ast.KindCodeSpan, j.renderCodeSpan)
 	reg.Register(jsxKind, j.renderJsxBlock)
 }
 
@@ -283,16 +140,12 @@ var jsxKind = ast.NewNodeKind("Jsx")
 
 type JsxNode struct {
 	ast.BaseBlock
-	pc  parser.Context
-	tag string
+	tag   string
+	count int // 几个
 }
 
 func (j *JsxNode) Kind() ast.NodeKind {
 	return jsxKind
-}
-
-func (j *JsxNode) GetContent() parser.Context {
-	return j.pc
 }
 
 // IsRaw return true 不解析 block 中的内容
@@ -334,12 +187,10 @@ func (j *jsxParser) Trigger() []byte {
 
 // 匹配 <A> or <>
 var jsxTagStartReg = regexp.MustCompile(`^ {0,3}<(([A-Z]+[a-zA-Z0-9\-]*)|>)`)
-var jsxTagStartOrEndReg = regexp.MustCompile(`^ {0,3}</?(([A-Z]+[a-zA-Z0-9\-]*)|>)`)
 
 func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
 	node := &JsxNode{
 		BaseBlock: ast.BaseBlock{},
-		pc:        pc,
 	}
 	line, segment := reader.PeekLine()
 	if pos := pc.BlockOffset(); pos < 0 || line[pos] != '<' {
@@ -377,6 +228,15 @@ func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context)
 	}
 
 	segment = text.NewSegment(start+offset, end+offset)
+
+	jsxs := GetJsxCode(pc)
+	if jsxs == nil {
+		jsxs = text.NewSegments()
+	}
+	node.count = jsxs.Len()
+	jsxs.Append(segment)
+	pc.Set(jsxCodeKey, jsxs)
+
 	node.Lines().Append(segment)
 	reader.Advance(segment.Len() - 1)
 	return node, parser.Close
@@ -388,6 +248,18 @@ func (j *jsxParser) Continue(node ast.Node, reader text.Reader, pc parser.Contex
 }
 
 func (j *jsxParser) Close(node ast.Node, reader text.Reader, pc parser.Context) {
+	// remove self
+	//node.Parent().RemoveChild(node.Parent(), node)
+}
+
+func GetJsxCode(pc parser.Context) *text.Segments {
+	i := pc.Get(jsxCodeKey)
+	if i != nil {
+		jsxs := i.(*text.Segments)
+		return jsxs
+	}
+
+	return nil
 }
 
 func (j *jsxParser) CanInterruptParagraph() bool {

@@ -6,7 +6,6 @@ import (
 	"github.com/yuin/goldmark"
 	meta "github.com/yuin/goldmark-meta"
 	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/renderer/html"
 	"os"
 	"testing"
 )
@@ -72,10 +71,6 @@ const a = "3233"
 	}
 
 	opts := []goldmark.Option{
-		goldmark.WithRendererOptions(
-			html.WithUnsafe(),
-			html.WithXHTML(),
-		),
 		goldmark.WithExtensions(
 			meta.Meta,
 			extension.GFM,
@@ -84,7 +79,6 @@ const a = "3233"
 	}
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
-
 			var buf bytes.Buffer
 			md := goldmark.New(opts...)
 			err := md.Convert([]byte(c.In), &buf)
