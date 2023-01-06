@@ -83,6 +83,12 @@ a={1}/> <> { 1 } </> hh`,
 <p>a={1}/&gt; <> { 1 } </> hh</p>
 `,
 		},
+		{
+			Name: "Code",
+			In:   "```js\n console.log(\"a c\\ \")\n```",
+			Out: `<pre dangerouslySetInnerHTML={{ __html: "<code class=\"language-js\"> console.log(&quot;a c\\ &quot;)\n</code>" }}></pre>
+`,
+		},
 	}
 
 	opts := []goldmark.Option{

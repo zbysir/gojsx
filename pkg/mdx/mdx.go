@@ -235,8 +235,6 @@ func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context)
 		return nil, parser.NoChildren
 	}
 
-	tagName := string(match[0][2])
-
 	_, s := reader.Position()
 	offset := s.Start
 	bs := reader.Source()[offset:]
@@ -249,6 +247,7 @@ func (j *jsxParser) Open(parent ast.Node, reader text.Reader, pc parser.Context)
 		return nil, parser.NoChildren
 	}
 
+	tagName := string(match[0][2])
 	node.tag = tagName
 	code := GetJsCode(pc)
 
@@ -281,8 +280,6 @@ func (j *jsxParser) Continue(node ast.Node, reader text.Reader, pc parser.Contex
 }
 
 func (j *jsxParser) Close(node ast.Node, reader text.Reader, pc parser.Context) {
-	// remove self
-	//node.Parent().RemoveChild(node.Parent(), node)
 }
 
 func GetJsxCode(pc parser.Context) *text.Segments {

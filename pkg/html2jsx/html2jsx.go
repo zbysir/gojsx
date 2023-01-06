@@ -58,9 +58,11 @@ func encodeJsxInsecure(s []byte) []byte {
 }
 
 func toStringCode(s []byte) []byte {
-	s = bytes.ReplaceAll(s, []byte(`"`), []byte(`\"`))
-	s = bytes.ReplaceAll(s, []byte("\n"), []byte(`\n`))
-	return s
+	var bf bytes.Buffer
+	je := json.NewEncoder(&bf)
+	je.SetEscapeHTML(false)
+	_ = je.Encode(string(s))
+	return bytes.TrimSuffix(bf.Bytes(), []byte{'\n'})
 }
 
 // - script|pre|style|textarea 的子节点需要处理成纯文本
@@ -75,7 +77,7 @@ func (c *ctx) toJsxToken(tt htmlparser.TokenType, src []byte, enableJsx bool) []
 				//inner, _ := json.Marshal(s)
 
 				inner := toStringCode(c.dangerouslySetInnerHTML.Bytes())
-				bs := []byte(fmt.Sprintf(` dangerouslySetInnerHTML={{ __html: "%s" }}>%s`, inner, src))
+				bs := []byte(fmt.Sprintf(` dangerouslySetInnerHTML={{ __html: %s }}>%s`, inner, src))
 				c.dangerouslySetInnerHTML.Reset()
 				c.dangerouslyHTMLStartTag = nil
 				c.startDangerouslySetInnerHTML = false
