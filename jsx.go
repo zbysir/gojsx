@@ -24,7 +24,6 @@ import (
 )
 
 type Jsx struct {
-	//vm *goja.Runtime
 	vmPool *tPool[*versionedVm]
 	tr     Transformer
 
@@ -76,34 +75,35 @@ func mD5(v []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-type OptionRun interface {
-	applyRunOptions(*runOptions)
+type OptionExec interface {
+	applyRunOptions(*execOptions)
 }
 
 type OptionRender interface {
 	applyRenderOptions(*renderOptions)
 }
 
-type runOptions struct {
-	Fs         fs.FS
-	GlobalVars map[string]interface{}
-	Cache      bool              // cache compiled js and modules
-	Transform  TransformerFormat // transform src to ES5 before run js
-	FileName   string
+type execOptions struct {
+	Fs                           fs.FS
+	GlobalVars                   map[string]interface{}
+	Cache                        bool // cache compiled js and modules
+	FileName                     string
+	AutoCallDefaultFunctionProps AutoCallDefaultFunctionProps
 }
+type AutoCallDefaultFunctionProps interface{}
 
 type renderOptions struct {
 	Fs    fs.FS
 	Cache bool
 }
 
-type RunJsOption func(*runOptions)
+type RunJsOption func(*execOptions)
 
 type fsOption struct {
 	fs fs.FS
 }
 
-func (c fsOption) applyRunOptions(options *runOptions) {
+func (c fsOption) applyRunOptions(options *execOptions) {
 	options.Fs = c.fs
 }
 
@@ -112,25 +112,27 @@ func (c fsOption) applyRenderOptions(options *renderOptions) {
 }
 
 func WithFs(fs fs.FS) interface {
-	OptionRun
+	OptionExec
 	OptionRender
 } {
 	return fsOption{fs: fs}
 }
 
-type transformerFormatOption TransformerFormat
-
-func (t transformerFormatOption) applyRunOptions(options *runOptions) {
-	options.Transform = TransformerFormat(t)
+type autoCallDefaultFunctionOption struct {
+	props AutoCallDefaultFunctionProps
 }
 
-func WithTransform(t TransformerFormat) OptionRun {
-	return transformerFormatOption(t)
+func (t autoCallDefaultFunctionOption) applyRunOptions(options *execOptions) {
+	options.AutoCallDefaultFunctionProps = t.props
+}
+
+func WithAutoCallDefaultFunction(t AutoCallDefaultFunctionProps) OptionExec {
+	return autoCallDefaultFunctionOption{props: t}
 }
 
 type cacheOption bool
 
-func (c cacheOption) applyRunOptions(options *runOptions) {
+func (c cacheOption) applyRunOptions(options *execOptions) {
 	options.Cache = bool(c)
 }
 
@@ -139,7 +141,7 @@ func (c cacheOption) applyRenderOptions(options *renderOptions) {
 }
 
 func WithCache(cache bool) interface {
-	OptionRun
+	OptionExec
 	OptionRender
 } {
 	return cacheOption(cache)
@@ -150,7 +152,7 @@ type globalVarOption struct {
 	v interface{}
 }
 
-func (g globalVarOption) applyRunOptions(options *runOptions) {
+func (g globalVarOption) applyRunOptions(options *execOptions) {
 	if options.GlobalVars == nil {
 		options.GlobalVars = map[string]interface{}{}
 	}
@@ -158,7 +160,7 @@ func (g globalVarOption) applyRunOptions(options *runOptions) {
 	options.GlobalVars[g.k] = g.v
 }
 
-func WithGlobalVar(k string, v interface{}) OptionRun {
+func WithGlobalVar(k string, v interface{}) OptionExec {
 	return globalVarOption{
 		k: k,
 		v: v,
@@ -167,16 +169,17 @@ func WithGlobalVar(k string, v interface{}) OptionRun {
 
 type fileNameOption string
 
-func (f fileNameOption) applyRunOptions(options *runOptions) {
+func (f fileNameOption) applyRunOptions(options *execOptions) {
 	options.FileName = string(f)
 }
 
-func WithFileName(fn string) OptionRun {
+func WithFileName(fn string) OptionExec {
 	return fileNameOption(fn)
 }
 
-func (j *Jsx) RunJs(src []byte, opts ...OptionRun) (v goja.Value, err error) {
-	var params runOptions
+// ExecCode code 需要是 ESModule 格式，如 export default () => <></>
+func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err error) {
+	var params execOptions
 	for _, o := range opts {
 		o.applyRunOptions(&params)
 	}
@@ -211,7 +214,16 @@ func (j *Jsx) RunJs(src []byte, opts ...OptionRun) (v goja.Value, err error) {
 		fileName = "root.js"
 	}
 
-	return j.runJs(vm.vm, fileName, src, params.Transform)
+	v, err := j.runJs(vm.vm, fileName, src, TransformerFormatIIFE)
+	if err != nil {
+		return
+	}
+	ex, err = parseModuleExport(exportGojaValue(v), vm.vm)
+	if err != nil {
+		return
+	}
+
+	return
 }
 
 func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform TransformerFormat) (v goja.Value, err error) {
@@ -257,12 +269,22 @@ func (j *Jsx) putVm(v *versionedVm) error {
 
 // Render a component to html
 func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n string, err error) {
-	p, err := j.Exec(file, props, opts...)
+	var p renderOptions
+	for _, o := range opts {
+		o.applyRenderOptions(&p)
+	}
+	ex, err := j.Exec(file, WithFs(p.Fs), WithCache(p.Cache), WithAutoCallDefaultFunction(props))
 	if err != nil {
 		return
 	}
 
-	return p.Default.VDom.Render(), nil
+	switch t := ex.Default.(type) {
+	case VDom:
+		return t.Render(), nil
+	default:
+		panic(t)
+	}
+	return
 }
 
 // 和 goja 自己的 export 不一样的是，不会尝试导出单个变量为 golang 基础类型，而是保留 goja.Value，只是展开 Object
@@ -291,96 +313,113 @@ func exportGojaValue(i interface{}) interface{} {
 	return i
 }
 
-func (j *Jsx) Exec(file string, props interface{}, opts ...OptionRender) (ex ModuleExport, err error) {
-	var p renderOptions
+func (j *Jsx) Exec(file string, opts ...OptionExec) (ex *ModuleExport, err error) {
+	var p execOptions
 	for _, o := range opts {
-		o.applyRenderOptions(&p)
+		o.applyRunOptions(&p)
 	}
 
-	res, err := j.RunJs([]byte(fmt.Sprintf(`var r = require("%v"); module.exports = {...r,default: r.default(props)}`, file)),
-		WithFs(p.Fs),
-		WithFileName("root.js"),
-		WithTransform(TransformerFormatIIFE),
-		WithGlobalVar("props", props),
-		WithCache(p.Cache),
-	)
-	if err != nil {
-		return
+	var code = []byte(fmt.Sprintf(`module.exports = require("%v")`, file))
+	if p.AutoCallDefaultFunctionProps != nil {
+		code = []byte(fmt.Sprintf(`var r = require("%v"); module.exports = {...r,default: r.default(_props)}`, file))
+		opts = append(opts, WithGlobalVar("_props", p.AutoCallDefaultFunctionProps))
 	}
-	ex, err = parseModuleExport(exportGojaValue(res))
+
+	ex, err = j.ExecCode(code, opts...)
 	if err != nil {
 		return
 	}
 	return
 }
 
-// ExecCode code 需要是 ESModule 格式，如 export default () => <></>
-func (j *Jsx) ExecCode(fileName string, code []byte, props interface{}, opts ...OptionRender) (ex ModuleExport, err error) {
-	var p renderOptions
-	for _, o := range opts {
-		o.applyRenderOptions(&p)
-	}
+func (V VDom) _default() {
+}
 
-	res, err := j.RunJs(code,
-		WithFs(p.Fs),
-		WithFileName(fileName),
-		WithTransform(TransformerFormatIIFE),
-		WithGlobalVar("props", props),
-		WithCache(p.Cache),
-	)
-	if err != nil {
-		return
-	}
-	ex, err = parseModuleExport(exportGojaValue(res))
-	if err != nil {
-		return
-	}
-	return
+type Callable func(args ...interface{}) (v goja.Value, err error)
+
+func (c Callable) _default() {
+}
+
+type Any struct {
+	Any interface{}
+}
+
+func (a Any) _default() {
+
+}
+
+type ExportDefault interface {
+	_default()
 }
 
 type ModuleExport struct {
-	Default VDomOrInterface
+	// One of VDom, Callable, Any
+	// VDom if WithAutoCallDefaultFunction
+	// Callable if export a function
+	Default ExportDefault
 	Exports map[string]interface{}
 }
 
 type VDomOrInterface struct {
-	VDom VDom
-	Any  interface{}
+	// VDom     VDom
+	Callable goja.Callable
+
+	Any interface{}
 }
 
-func parseModuleExport(i interface{}) (m ModuleExport, err error) {
-	var vDomOrInterface VDomOrInterface
+func (v *VDomOrInterface) render(props goja.Value) (string, error) {
+	if v.Callable != nil {
+		val, err := v.Callable(props)
+		if err != nil {
+			return "", err
+		}
+		vdom, err := tryToVDom(val.Export())
+		if err != nil {
+			return "", err
+		}
+
+		return vdom.Render(), nil
+	}
+
+	return "", nil
+}
+
+func parseModuleExport(i interface{}, vm *goja.Runtime) (m *ModuleExport, err error) {
+	var vDomOrInterface ExportDefault
 
 	switch t := i.(type) {
 	case map[string]interface{}:
 		switch t := t["default"].(type) {
 		case *goja.Object:
-			// for export default ()=> <></>
 			c, ok := AssertFunction(t)
 			if ok {
-				val, err := c(nil)
-				if err != nil {
-					return m, err
-				}
-				vDomOrInterface.VDom, _ = tryToVDom(val.Export())
+				vDomOrInterface = Callable(func(args ...interface{}) (v goja.Value, err error) {
+					as := make([]goja.Value, len(args))
+					for i, arg := range args {
+						as[i] = vm.ToValue(arg)
+					}
+					return c(nil, as...)
+				})
 			} else {
-				// for export default ""
-				vDomOrInterface.VDom, _ = tryToVDom(t.Export())
+				vDomOrInterface = Any{t.Export()}
 			}
 		default:
-			vDomOrInterface.VDom, _ = tryToVDom(t)
+			// for WithAutoCallDefaultFunction
+			v, _ := tryToVDom(t)
+			if v != nil {
+				vDomOrInterface = v
+			} else {
+				vDomOrInterface = Any{t}
+			}
 		}
 
-		if vDomOrInterface.VDom == nil {
-			vDomOrInterface.Any = t
-		}
 		delete(t, "default")
-		return ModuleExport{
+		return &ModuleExport{
 			Default: vDomOrInterface,
 			Exports: t,
 		}, nil
 	default:
-		return ModuleExport{}, fmt.Errorf("export value type expect 'map[string]interface{}', actual '%T'", i)
+		return nil, fmt.Errorf("export value type expect 'map[string]interface{}', actual '%T'", i)
 	}
 }
 

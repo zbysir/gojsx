@@ -3,10 +3,7 @@ package gojsx
 import (
 	"embed"
 	_ "embed"
-	"github.com/dop251/goja"
-	"github.com/stretchr/testify/assert"
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -146,49 +143,17 @@ func TestP(t *testing.T) {
 	wg.Wait()
 }
 
-func TestArrowFunc(t *testing.T) {
-	v := goja.New()
-	x, err := v.RunString("({a: ()=> 1, b: function(){}})")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	o := x.(*goja.Object)
-
-	// https://github.com/dop251/goja/pull/419
-	t.Logf("b: %T", o.Get("b").Export()) // func(goja.FunctionCall) goja.Value
-	t.Logf("a: %T", o.Get("a").Export()) // got 'map', but expect 'func(goja.FunctionCall) goja.Value'
-}
-
-func TestCleanClass(t *testing.T) {
-	v := VDom{}
-	var s strings.Builder
-	v.renderClassName(&s, "a1 a12\n b1  \n\n\n c1\nd1 d12", true)
-
-	assert.Equal(t, "a1 a12 b1 c1 d1 d12", s.String())
-}
-
-func TestCamelString(t *testing.T) {
-	v := VDom{}
-	var s strings.Builder
-
-	v.renderAttributes(&s, map[string]interface{}{"strokeWidth": 1})
-
-	t.Logf("%+v", s.String())
-	assert.Equal(t, " stroke-width=\"1\"", s.String())
-}
-
 func TestRunJs(t *testing.T) {
 	j, err := NewJsx(Option{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := j.RunJs([]byte(`function HelloJSX(){return <p></p>}; export default <HelloJSX></HelloJSX>`), WithFileName("1.tsx"), WithTransform(TransformerFormatIIFE))
+	v, err := j.ExecCode([]byte(`function HelloJSX(){return <p></p>}; export default <HelloJSX></HelloJSX>`), WithFileName("1.tsx"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Logf("%+v", v.Export())
+	t.Logf("%+v", v)
 }
 
 func TestRunMd(t *testing.T) {
@@ -196,12 +161,12 @@ func TestRunMd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := j.RunJs([]byte(`## h2`), WithFileName("1.md"), WithTransform(TransformerFormatIIFE))
+	v, err := j.ExecCode([]byte(`## h2`), WithFileName("1.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Logf("%+v", v.Export())
+	t.Logf("%+v", v)
 }
 
 func TestRenderMd(t *testing.T) {
@@ -235,11 +200,13 @@ func TestExec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := j.Exec("./test/md.md", map[string]interface{}{"a": 1})
+	n, err := j.Exec("./test/md.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Logf("%+v", n.Default.VDom)
+	v, _ := n.Default.(Callable)(nil, nil)
+	vd, _ := tryToVDom(v.Export())
+	t.Logf("%+v", vd)
 	t.Logf("%+v", n.Exports)
 }

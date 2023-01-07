@@ -3,11 +3,11 @@ module github.com/zbysir/gojsx
 go 1.18
 
 require (
-	github.com/dop251/goja v0.0.0-20220815083517-0c74f9139fd6
+	github.com/dop251/goja v0.0.0-20221229151140-b95230a9dbad
 	github.com/evanw/esbuild v0.14.51
 	github.com/jolestar/go-commons-pool/v2 v2.1.2
 	github.com/stoewer/go-strcase v1.2.0
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.1
 	github.com/tdewolff/parse/v2 v2.6.5
 	github.com/yuin/goldmark v1.5.3
 	github.com/yuin/goldmark-meta v1.1.0
