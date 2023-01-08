@@ -84,13 +84,14 @@ type OptionRender interface {
 }
 
 type execOptions struct {
-	Fs                           fs.FS
-	GlobalVars                   map[string]interface{}
-	Cache                        bool // cache compiled js and modules
-	FileName                     string
-	AutoCallDefaultFunctionProps AutoCallDefaultFunctionProps
+	Fs               fs.FS
+	GlobalVars       map[string]interface{}
+	Cache            bool // cache compiled js and modules
+	FileName         string
+	AutoExecJsx      bool
+	AutoExecJsxProps AutoExecJsxProps
 }
-type AutoCallDefaultFunctionProps interface{}
+type AutoExecJsxProps interface{}
 
 type renderOptions struct {
 	Fs    fs.FS
@@ -118,16 +119,17 @@ func WithFs(fs fs.FS) interface {
 	return fsOption{fs: fs}
 }
 
-type autoCallDefaultFunctionOption struct {
-	props AutoCallDefaultFunctionProps
+type autoExecJsxOption struct {
+	props AutoExecJsxProps
 }
 
-func (t autoCallDefaultFunctionOption) applyRunOptions(options *execOptions) {
-	options.AutoCallDefaultFunctionProps = t.props
+func (t autoExecJsxOption) applyRunOptions(options *execOptions) {
+	options.AutoExecJsxProps = t.props
+	options.AutoExecJsx = true
 }
 
-func WithAutoCallDefaultFunction(t AutoCallDefaultFunctionProps) OptionExec {
-	return autoCallDefaultFunctionOption{props: t}
+func WithAutoExecJsx(t AutoExecJsxProps) OptionExec {
+	return autoExecJsxOption{props: t}
 }
 
 type cacheOption bool
@@ -218,7 +220,7 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 	if err != nil {
 		return
 	}
-	ex, err = parseModuleExport(exportGojaValue(v), vm.vm)
+	ex, err = parseModuleExport(exportGojaValue(v), params.AutoExecJsx, vm.vm)
 	if err != nil {
 		return
 	}
@@ -273,7 +275,7 @@ func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n st
 	for _, o := range opts {
 		o.applyRenderOptions(&p)
 	}
-	ex, err := j.Exec(file, WithFs(p.Fs), WithCache(p.Cache), WithAutoCallDefaultFunction(props))
+	ex, err := j.Exec(file, WithFs(p.Fs), WithCache(p.Cache), WithAutoExecJsx(props))
 	if err != nil {
 		return
 	}
@@ -320,9 +322,9 @@ func (j *Jsx) Exec(file string, opts ...OptionExec) (ex *ModuleExport, err error
 	}
 
 	var code = []byte(fmt.Sprintf(`module.exports = require("%v")`, file))
-	if p.AutoCallDefaultFunctionProps != nil {
-		code = []byte(fmt.Sprintf(`var r = require("%v"); module.exports = {...r,default: r.default(_props)}`, file))
-		opts = append(opts, WithGlobalVar("_props", p.AutoCallDefaultFunctionProps))
+	if p.AutoExecJsx {
+		code = []byte(fmt.Sprintf(`var r = require("%v"); module.exports = {...r, default: r.default(_props)}`, file))
+		opts = append(opts, WithGlobalVar("_props", p.AutoExecJsxProps))
 	}
 
 	ex, err = j.ExecCode(code, opts...)
@@ -354,7 +356,7 @@ type ExportDefault interface {
 
 type ModuleExport struct {
 	// One of VDom, Callable, Any
-	// VDom if WithAutoCallDefaultFunction
+	// VDom if WithAutoExecJsx
 	// Callable if export a function
 	Default ExportDefault
 	Exports map[string]interface{}
@@ -384,7 +386,7 @@ func (v *VDomOrInterface) render(props goja.Value) (string, error) {
 	return "", nil
 }
 
-func parseModuleExport(i interface{}, vm *goja.Runtime) (m *ModuleExport, err error) {
+func parseModuleExport(i interface{}, tryVDom bool, vm *goja.Runtime) (m *ModuleExport, err error) {
 	var vDomOrInterface ExportDefault
 
 	switch t := i.(type) {
@@ -404,11 +406,15 @@ func parseModuleExport(i interface{}, vm *goja.Runtime) (m *ModuleExport, err er
 				vDomOrInterface = Any{t.Export()}
 			}
 		default:
-			// for WithAutoCallDefaultFunction
-			v, _ := tryToVDom(t)
-			if v != nil {
-				vDomOrInterface = v
-			} else {
+			if tryVDom {
+				// for WithAutoExecJsx
+				v, _ := tryToVDom(t)
+				if v != nil {
+					vDomOrInterface = v
+				}
+			}
+
+			if vDomOrInterface == nil {
 				vDomOrInterface = Any{t}
 			}
 		}
