@@ -322,14 +322,24 @@ func (j *Jsx) Exec(file string, opts ...OptionExec) (ex *ModuleExport, err error
 	}
 
 	var code = []byte(fmt.Sprintf(`module.exports = require("%v")`, file))
-	if p.AutoExecJsx {
-		code = []byte(fmt.Sprintf(`var r = require("%v"); module.exports = {...r, default: r.default(_props)}`, file))
-		opts = append(opts, WithGlobalVar("_props", p.AutoExecJsxProps))
-	}
 
 	ex, err = j.ExecCode(code, opts...)
 	if err != nil {
 		return
+	}
+
+	if p.AutoExecJsx {
+		switch t := ex.Default.(type) {
+		case Callable:
+			v, err := t(p.AutoExecJsxProps)
+			if err != nil {
+				return nil, err
+			}
+			vd, _ := tryToVDom(v.Export())
+			if vd != nil {
+				ex.Default = vd
+			}
+		}
 	}
 	return
 }
@@ -610,10 +620,6 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 //}
 
 type VDom map[string]interface{}
-
-func (v VDom) VDom() VDom {
-	return v
-}
 
 // 处理 React 中标签语法与标准标签的对应关系。如将 strokeWidth 换为 stroke-width。
 // 参考 react-dom/cjs/react-dom-server-legacy.node.development.js 实现

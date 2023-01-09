@@ -209,4 +209,11 @@ func TestExec(t *testing.T) {
 	vd, _ := tryToVDom(v.Export())
 	t.Logf("%+v", vd)
 	t.Logf("%+v", n.Exports)
+
+	n, err = j.Exec("./test/md.md", WithAutoExecJsx(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%+v", n.Default.(VDom))
 }
