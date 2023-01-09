@@ -181,9 +181,9 @@ func WithFileName(fn string) OptionExec {
 
 // ExecCode code 需要是 ESModule 格式，如 export default () => <></>
 func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err error) {
-	var params execOptions
+	var p execOptions
 	for _, o := range opts {
-		o.applyRunOptions(&params)
+		o.applyRunOptions(&p)
 	}
 
 	vm, err := j.getVm()
@@ -192,26 +192,26 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 	}
 	defer j.putVm(vm)
 
-	fileSys := params.Fs
+	fileSys := p.Fs
 	if fileSys == nil {
 		fileSys = stdFileSystem{}
 	}
 
 	vm.registry.SrcLoader = j.registryLoader(fileSys)
 
-	if !params.Cache {
+	if !p.Cache {
 		vm.registry.Enable(vm.vm) // to clear modules cache
 		vm.registry.Clear()       // to clear compiled cache
 	}
 
-	for k, v := range params.GlobalVars {
+	for k, v := range p.GlobalVars {
 		err = vm.vm.Set(k, v)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	fileName := params.FileName
+	fileName := p.FileName
 	if fileName == "" {
 		fileName = "root.js"
 	}
@@ -220,11 +220,24 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 	if err != nil {
 		return
 	}
-	ex, err = parseModuleExport(exportGojaValue(v), params.AutoExecJsx, vm.vm)
+	ex, err = parseModuleExport(exportGojaValue(v), p.AutoExecJsx, vm.vm)
 	if err != nil {
 		return
 	}
 
+	if p.AutoExecJsx {
+		switch t := ex.Default.(type) {
+		case Callable:
+			v, err := t(p.AutoExecJsxProps)
+			if err != nil {
+				return nil, err
+			}
+			vd, _ := tryToVDom(v.Export())
+			if vd != nil {
+				ex.Default = vd
+			}
+		}
+	}
 	return
 }
 
@@ -328,19 +341,6 @@ func (j *Jsx) Exec(file string, opts ...OptionExec) (ex *ModuleExport, err error
 		return
 	}
 
-	if p.AutoExecJsx {
-		switch t := ex.Default.(type) {
-		case Callable:
-			v, err := t(p.AutoExecJsxProps)
-			if err != nil {
-				return nil, err
-			}
-			vd, _ := tryToVDom(v.Export())
-			if vd != nil {
-				ex.Default = vd
-			}
-		}
-	}
 	return
 }
 
