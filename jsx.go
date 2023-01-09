@@ -604,7 +604,7 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 	}
 }
 
-//type VDom struct {
+//type VDomx struct {
 //	NodeName   string                 `json:"nodeName"`
 //	Attributes map[string]interface{} `json:"attributes"`
 //}
