@@ -2,9 +2,11 @@ package gojsx
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/evanw/esbuild/pkg/api"
+	"github.com/go-sourcemap/sourcemap"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark-meta"
 	"github.com/yuin/goldmark/ast"
@@ -253,15 +255,53 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 	})
 
 	if len(result.Errors) != 0 {
-		e := result.Errors[0]
-		if e.Location != nil {
-			err = fmt.Errorf("%v: (%v:%v) \n%v\n%v^ %v\n", filePath, e.Location.Line, e.Location.Column, e.Location.LineText, strings.Repeat(" ", e.Location.Column), e.Text)
+		er := result.Errors[0]
+		if er.Location != nil {
+			location := e.trySourcemapLocation(er.Location, code)
+			err = fmt.Errorf("%v: (%v:%v) \n%v\n%v^ %v\n", filePath, location.Line, location.Column, location.LineText, strings.Repeat(" ", location.Column), er.Text)
 		} else {
-			err = fmt.Errorf("%v\n", e.Text)
+			err = fmt.Errorf("%v\n", er.Text)
 		}
 		return
 	}
 
 	code = result.Code
 	return code, nil
+}
+
+// 将 esbuild 报错位置信息通过 sourcemap 转换
+func (e *EsBuildTransform) trySourcemapLocation(l *api.Location, source []byte) *api.Location {
+	sms := bytes.Split(source, []byte(`sourceMappingURL=data:application/json;base64,`))
+	if len(sms) != 2 {
+		return l
+	}
+
+	sourcemapJson, _ := base64.URLEncoding.DecodeString(string(sms[1]))
+	if sourcemapJson == nil {
+		return l
+	}
+
+	c, err := sourcemap.Parse("./", sourcemapJson)
+	if err != nil {
+		return l
+	}
+
+	file, _, line, column, ok := c.Source(l.Line, l.Column)
+	if !ok {
+		return l
+	}
+
+	return &api.Location{
+		File:       file,
+		Namespace:  l.Namespace,
+		Line:       line,
+		Column:     column,
+		Length:     l.Length,
+		LineText:   sourceLine(c.SourceContent(file), line),
+		Suggestion: l.Suggestion,
+	}
+}
+
+func sourceLine(s string, i int) string {
+	return strings.SplitN(s, "\n", i)[i-1]
 }
