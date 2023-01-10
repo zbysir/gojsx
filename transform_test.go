@@ -92,7 +92,6 @@ fsd<><@EOI3u4iuO#$U#($U#94u8u8
 		b, err := x.Transform("1.mdx", []byte(`---
 logo: Hollow
 ---
-
 import Logo from "./logo"
 import Footer from "./footer.md"
 const history = [
@@ -102,6 +101,7 @@ const history = [
   }
 ]
 
+<Logo/>
 `), TransformerFormatIIFE)
 		if err != nil {
 			t.Fatal(err)

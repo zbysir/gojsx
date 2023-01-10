@@ -42,7 +42,9 @@ func (j *jsCodeNode) Dump(source []byte, level int) {
 
 func (b *jsCodeParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
 	// 只支持放在头部的代码
-	if parent.Type() != ast.TypeDocument || parent.HasChildren() {
+	// parent.Dump(reader.Source(), 1)
+	// meta 解析过程是 先 open meta，在 open jsCode，然后再 close meta，再删 node，所以 meta 下要有一行空格。
+	if parent.Type() != ast.TypeDocument || parent.ChildCount() > 1 {
 		return nil, parser.NoChildren
 	}
 
