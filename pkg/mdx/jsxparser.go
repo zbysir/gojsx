@@ -29,7 +29,7 @@ func parseTagToClose(buf *bytes.Buffer) (start, end int, ok bool, err error) {
 
 		tp, bs := l.Next()
 
-		//log.Printf("%s %s", tp, bs)
+		//log.Printf("parseTagToClose: %s %s", tp, bs)
 
 		begin := pos
 		pos += len(bs)

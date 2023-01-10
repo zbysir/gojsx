@@ -430,7 +430,7 @@ func (l *Lexer) shiftEndTag() []byte {
 		break
 	}
 	l.text = l.text[:end]
-	return parse.ToLower(parse.Copy(l.r.Shift()))
+	return l.r.Shift()
 }
 
 // shiftXML parses the content of a svg or math tag according to the XML 1.1 specifications, including the tag itself.

@@ -72,10 +72,6 @@ func (c *ctx) toJsxToken(tt htmlparser.TokenType, src []byte, enableJsx bool) []
 		case htmlparser.EndTagToken:
 			var tag = src[2 : len(src)-1]
 			if bytes.Equal(c.dangerouslyHTMLStartTag, tag) {
-				//s := c.dangerouslySetInnerHTML.String()
-				//s = htmlstd.EscapeString(s)
-				//inner, _ := json.Marshal(s)
-
 				inner := toStringCode(c.dangerouslySetInnerHTML.Bytes())
 				bs := []byte(fmt.Sprintf(` dangerouslySetInnerHTML={{ __html: %s }}>%s`, inner, src))
 				c.dangerouslySetInnerHTML.Reset()
@@ -96,6 +92,7 @@ func (c *ctx) toJsxToken(tt htmlparser.TokenType, src []byte, enableJsx bool) []
 			// for <
 			src = encodeJsxInsecure(src)
 		} else {
+			// for <Component
 			src = bytes.ToLower(src)
 		}
 		c.currStartTag = tag
