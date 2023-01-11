@@ -109,4 +109,28 @@ const history = [
 
 		t.Logf("%s", b)
 	})
+	t.Run("json", func(t *testing.T) {
+		b, err := x.Transform("1.json", []byte(`{"a":"1"}`), TransformerFormatCommonJS)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
+	t.Run("js", func(t *testing.T) {
+		b, err := x.Transform("1.js", []byte(`modules.export= {a: 1}`), TransformerFormatCommonJS)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
+	t.Run("css", func(t *testing.T) {
+		b, err := x.Transform("1.css", []byte(`body {color: red}`), TransformerFormatCommonJS)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
 }

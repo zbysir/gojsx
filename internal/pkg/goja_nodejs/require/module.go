@@ -3,16 +3,14 @@ package require
 import (
 	"errors"
 	"fmt"
+	js "github.com/dop251/goja"
+	"github.com/dop251/goja/parser"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
-	"text/template"
-
-	js "github.com/dop251/goja"
-	"github.com/dop251/goja/parser"
 )
 
 type ModuleLoader func(*js.Runtime, *js.Object)
@@ -166,10 +164,6 @@ func (r *Registry) getCompiledSource(p string) (*js.Program, error) {
 			return nil, err
 		}
 		s := string(buf)
-
-		if path.Ext(p) == ".json" {
-			s = "module.exports = JSON.parse('" + template.JSEscapeString(s) + "')"
-		}
 
 		source := "(function(exports, require, module) {" + s + "\n})"
 		parsed, err := js.Parse(p, source, parser.WithSourceMapLoader(r.SrcLoader))

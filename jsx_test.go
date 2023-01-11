@@ -217,3 +217,15 @@ func TestExec(t *testing.T) {
 
 	t.Logf("%+v", n.Default.(VDom))
 }
+
+func TestExecJson(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := j.Exec("./test/a.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%+v", n.Exports)
+}

@@ -238,13 +238,22 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 		}
 	}
 
+	var sourcemapx api.SourceMap
+	switch ext {
+	case ".jsx", ".tsx", ".mdx", ".md", ".js", ".ts", ".mjs", ".cjs":
+		sourcemapx = api.SourceMapInline
+	default:
+		// .json 不生成 sourcemap，因为会 esbuild 生成空 sourcemap，但 goja 执行空 sourcemap 会报错。
+		sourcemapx = api.SourceMapNone
+	}
+
 	result := api.Transform(string(code), api.TransformOptions{
 		Loader:            loader,
 		Target:            api.ESNext,
 		JSXMode:           api.JSXModeAutomatic,
 		Format:            esFormat,
 		Platform:          api.PlatformNode,
-		Sourcemap:         api.SourceMapInline,
+		Sourcemap:         sourcemapx,
 		SourceRoot:        "",
 		Sourcefile:        file,
 		MinifyIdentifiers: e.minify,
