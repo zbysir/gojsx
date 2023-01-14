@@ -47,6 +47,7 @@ type Source struct {
 	CreatedAt string
 }
 
+// TODO use LRU
 type memSourceCache struct {
 	m *sync.Map
 }
@@ -243,11 +244,20 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 
 func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform TransformerFormat) (v goja.Value, err error) {
 	if transform != 0 {
-		src, err = j.tr.Transform(fileName, src, transform)
+		key := mD5(src)
+		s, exist, err := j.cache.Get(key)
 		if err != nil {
-			return nil, fmt.Errorf("load file error: %w", err)
+			return nil, err
 		}
-		//log.Printf("src: %s", src)
+		if exist {
+			src = s.Body
+		} else {
+			src, err = j.tr.Transform(fileName, src, transform)
+			if err != nil {
+				return nil, fmt.Errorf("load file error: %w", err)
+			}
+			j.cache.Set(key, &Source{Body: src})
+		}
 	}
 
 	v, err = vm.RunScript(fileName, string(src))
@@ -512,10 +522,9 @@ func NewJsx(op Option) (*Jsx, error) {
 	return j, nil
 }
 
-func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
+func (j *Jsx) registryLoader(fileSys fs.FS) func(path string) ([]byte, error) {
 	return func(path string) ([]byte, error) {
 		var fileBody []byte
-		//var filePath string
 
 		if j.debug {
 			fmt.Printf("tryload: %v\n", path)
@@ -546,7 +555,7 @@ func (j *Jsx) registryLoader(filesys fs.FS) func(path string) ([]byte, error) {
 				if p != "" {
 					tryPath = strings.TrimSuffix(path, ".js") + p
 				}
-				bs, err := fs.ReadFile(filesys, tryPath)
+				bs, err := fs.ReadFile(fileSys, tryPath)
 				if err != nil {
 					if errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "is a directory") {
 						continue

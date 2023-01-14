@@ -133,4 +133,12 @@ const history = [
 
 		t.Logf("%s", b)
 	})
+	t.Run("import", func(t *testing.T) {
+		b, err := x.Transform("1.tsx", []byte(`const Home = import("./page/Home"); export default <Home/>`), TransformerFormatCommonJS)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Logf("%s", b)
+	})
 }

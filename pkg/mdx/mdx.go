@@ -51,7 +51,7 @@ func (e *mdJsx) Extend(m goldmark.Markdown) {
 	m.Renderer().AddOptions(
 		html.WithUnsafe(),
 		html.WithXHTML(),
-		html.WithWriter(&wrapWriter{html.DefaultWriter}),
+		html.WithWriter(&wrapWriter{Writer: html.DefaultWriter, enableJsx: e.format == Mdx}),
 	)
 
 	parse := &WrapParser{Parser: m.Parser()}
@@ -61,6 +61,7 @@ func (e *mdJsx) Extend(m goldmark.Markdown) {
 
 type wrapWriter struct {
 	html.Writer
+	enableJsx bool
 }
 
 func encodeJsxInsecure(s []byte) []byte {
@@ -70,12 +71,16 @@ func encodeJsxInsecure(s []byte) []byte {
 }
 
 func (w *wrapWriter) Write(writer util.BufWriter, source []byte) {
-	// 解决纯文本中 {} 符号引起的语法错误
-	buffer := bytes.NewBuffer(nil)
-	wr := bufio.NewWriter(buffer)
-	w.Writer.Write(wr, source)
-	wr.Flush()
-	writer.Write(encodeJsxInsecure(buffer.Bytes()))
+	if !w.enableJsx {
+		// 解决纯文本中 {} 符号引起的语法错误
+		buffer := bytes.NewBuffer(nil)
+		wr := bufio.NewWriter(buffer)
+		w.Writer.Write(wr, source)
+		wr.Flush()
+		writer.Write(encodeJsxInsecure(buffer.Bytes()))
+	} else {
+		w.Writer.Write(writer, source)
+	}
 }
 
 type WrapParser struct {
