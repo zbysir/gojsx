@@ -37,8 +37,8 @@ type Jsx struct {
 }
 
 type SourceCache interface {
-	Get(key string) (f *Source, exist bool, err error)
-	Set(key string, f *Source) (err error)
+	Get(key string) (f []byte, exist bool, err error)
+	Set(key string, f []byte) (err error)
 }
 
 type Source struct {
@@ -56,17 +56,17 @@ func NewMemSourceCache() *memSourceCache {
 	return &memSourceCache{m: &sync.Map{}}
 }
 
-func (m *memSourceCache) Get(key string) (f *Source, exist bool, err error) {
+func (m *memSourceCache) Get(key string) (body []byte, exist bool, err error) {
 	i, ok := m.m.Load(key)
 	if !ok {
 		return nil, false, nil
 	}
 
-	return i.(*Source), true, nil
+	return i.([]byte), true, nil
 }
 
-func (m *memSourceCache) Set(key string, f *Source) (err error) {
-	m.m.Store(key, f)
+func (m *memSourceCache) Set(key string, body []byte) (err error) {
+	m.m.Store(key, body)
 	return nil
 }
 
@@ -84,19 +84,47 @@ type OptionRender interface {
 	applyRenderOptions(*renderOptions)
 }
 
+type nativeModule struct {
+	Path string
+	Obj  map[string]interface{}
+}
+
+func (n nativeModule) applyRenderOptions(options *renderOptions) {
+	options.NativeModules = append(options.NativeModules, n)
+}
+
+func (n nativeModule) applyRunOptions(options *execOptions) {
+	options.NativeModules = append(options.NativeModules, n)
+}
+
 type execOptions struct {
-	Fs               fs.FS
-	GlobalVars       map[string]interface{}
-	Cache            bool // cache compiled js and modules
+	Fs         fs.FS
+	GlobalVars map[string]interface{}
+	// cache modules value, does not respond to file changes if true.
+	// 如果想要更改源码立即生效则不要设置 true，只有当一次性运行或生产环境为了更好的性能可以设置为 true。
+	Cache            bool
 	FileName         string
 	AutoExecJsx      bool
 	AutoExecJsxProps AutoExecJsxProps
+	NativeModules    []nativeModule
 }
+
+func WithNativeModule(path string, obj map[string]interface{}) interface {
+	OptionExec
+	OptionRender
+} {
+	return nativeModule{
+		Path: path,
+		Obj:  obj,
+	}
+}
+
 type AutoExecJsxProps interface{}
 
 type renderOptions struct {
-	Fs    fs.FS
-	Cache bool
+	Fs            fs.FS
+	Cache         bool
+	NativeModules []nativeModule
 }
 
 type RunJsOption func(*execOptions)
@@ -201,8 +229,16 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 	vm.registry.SrcLoader = j.registryLoader(fileSys)
 
 	if !p.Cache {
-		vm.registry.Enable(vm.vm) // to clear modules cache
-		vm.registry.Clear()       // to clear compiled cache
+		vm.requireModule.Clean() // to clear modules cache
+	}
+
+	for _, mod := range p.NativeModules {
+		vm.registry.RegisterNativeModule(mod.Path, func(runtime *goja.Runtime, module *goja.Object) {
+			o := module.Get("exports").(*goja.Object)
+			for k, v := range mod.Obj {
+				_ = o.Set(k, v)
+			}
+		})
 	}
 
 	for k, v := range p.GlobalVars {
@@ -250,13 +286,13 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform Tra
 			return nil, err
 		}
 		if exist {
-			src = s.Body
+			src = s
 		} else {
 			src, err = j.tr.Transform(fileName, src, transform)
 			if err != nil {
 				return nil, fmt.Errorf("load file error: %w", err)
 			}
-			j.cache.Set(key, &Source{Body: src})
+			j.cache.Set(key, src)
 		}
 	}
 
@@ -268,10 +304,11 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform Tra
 }
 
 type versionedVm struct {
-	once     sync.Once
-	vm       *goja.Runtime
-	registry *require.Registry
-	version  int32
+	once          sync.Once
+	vm            *goja.Runtime
+	registry      *require.Registry
+	requireModule *require.RequireModule
+	version       int32
 }
 
 func (j *Jsx) getVm() (*versionedVm, error) {
@@ -281,7 +318,7 @@ func (j *Jsx) getVm() (*versionedVm, error) {
 	}
 
 	vm.once.Do(func() {
-		vm.registry.Enable(vm.vm)
+		vm.requireModule = vm.registry.Enable(vm.vm)
 		console.Enable(vm.vm, nil)
 	})
 
@@ -468,7 +505,6 @@ func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
 			_ = o.Set(k, v)
 		}
 	})
-
 }
 
 type stdFileSystem struct {
@@ -580,17 +616,16 @@ func (j *Jsx) registryLoader(fileSys fs.FS) func(path string) ([]byte, error) {
 			fmt.Printf(" transform")
 		}
 
-		cacheKey := mD5([]byte(path))
 		srcMd5 := mD5(fileBody)
 		var cached bool
 		if j.cache != nil {
-			fi, exist, err := j.cache.Get(cacheKey)
+			fi, exist, err := j.cache.Get(srcMd5)
 			if err != nil {
 				return nil, err
 			}
-			if exist && fi.SrcMd5 == srcMd5 {
+			if exist {
 				cached = true
-				fileBody = fi.Body
+				fileBody = fi
 			}
 		}
 
@@ -605,11 +640,7 @@ func (j *Jsx) registryLoader(fileSys fs.FS) func(path string) ([]byte, error) {
 			}
 
 			if j.cache != nil {
-				err = j.cache.Set(cacheKey, &Source{
-					SrcMd5:    srcMd5,
-					Body:      fileBody,
-					CreatedAt: "",
-				})
+				err = j.cache.Set(srcMd5, fileBody)
 				if err != nil {
 					return nil, nil
 				}

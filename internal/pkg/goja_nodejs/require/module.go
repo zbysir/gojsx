@@ -1,10 +1,14 @@
 package require
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	js "github.com/dop251/goja"
 	"github.com/dop251/goja/parser"
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/zbysir/gojsx/pkg/timetrack"
 	"os"
 	"path"
 	"path/filepath"
@@ -40,22 +44,28 @@ var native map[string]ModuleLoader
 // Registry contains a cache of compiled modules which can be used by multiple Runtimes
 type Registry struct {
 	sync.Mutex
-	native   map[string]ModuleLoader
-	compiled map[string]*js.Program
-
+	native        map[string]ModuleLoader
+	compliedCache *lru.Cache[string, *js.Program]
 	SrcLoader     SourceLoader
 	globalFolders []string
+	timeTracker   *timetrack.TimeTracker
 }
 
 type RequireModule struct {
-	r           *Registry
-	runtime     *js.Runtime
-	modules     map[string]*js.Object
-	nodeModules map[string]*js.Object
+	r            *Registry
+	runtime      *js.Runtime
+	modulesCache *lru.Cache[string, *js.Object]
+	nodeModules  map[string]*js.Object
 }
 
 func NewRegistry(opts ...Option) *Registry {
-	r := &Registry{}
+	c, err := lru.New[string, *js.Program](100)
+	if err != nil {
+		panic(err)
+	}
+	r := &Registry{
+		compliedCache: c,
+	}
 
 	for _, opt := range opts {
 		opt(r)
@@ -95,11 +105,12 @@ func WithGlobalFolders(globalFolders ...string) Option {
 
 // Enable adds the require() function to the specified runtime.
 func (r *Registry) Enable(runtime *js.Runtime) *RequireModule {
+	c, _ := lru.New[string, *js.Object](100)
 	rrt := &RequireModule{
-		r:           r,
-		runtime:     runtime,
-		modules:     make(map[string]*js.Object),
-		nodeModules: make(map[string]*js.Object),
+		r:            r,
+		runtime:      runtime,
+		modulesCache: c,
+		nodeModules:  make(map[string]*js.Object),
 	}
 
 	runtime.Set("require", rrt.require)
@@ -146,40 +157,46 @@ func (r *Registry) getSource(p string) ([]byte, error) {
 	}
 	return srcLoader(p)
 }
-func (r *Registry) Clear() {
-	r.Lock()
-	defer r.Unlock()
 
-	r.compiled = make(map[string]*js.Program)
+func (r *Registry) ClearCompliedCache() {
+	r.compliedCache.Purge()
+}
+
+func mD5(v []byte) string {
+	m := md5.New()
+	m.Write(v)
+	return hex.EncodeToString(m.Sum(nil))
 }
 
 func (r *Registry) getCompiledSource(p string) (*js.Program, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	prg := r.compiled[p]
-	if prg == nil {
-		buf, err := r.getSource(p)
-		if err != nil {
-			return nil, err
-		}
-		s := string(buf)
-
-		source := "(function(exports, require, module) {" + s + "\n})"
-		parsed, err := js.Parse(p, source, parser.WithSourceMapLoader(r.SrcLoader))
-		if err != nil {
-			return nil, err
-		}
-		prg, err = js.CompileAST(parsed, false)
-		if err == nil {
-			if r.compiled == nil {
-				r.compiled = make(map[string]*js.Program)
-			}
-			r.compiled[p] = prg
-		}
-		return prg, err
+	end := r.timeTracker.Start("getSource")
+	buf, err := r.getSource(p)
+	end()
+	if err != nil {
+		return nil, err
 	}
-	return prg, nil
+
+	bodyMd5 := mD5(buf)
+	prg, ok := r.compliedCache.Get(bodyMd5)
+	if ok {
+		return prg, nil
+	}
+
+	s := string(buf)
+
+	source := "(function(exports, require, module) {" + s + "\n})"
+	parsed, err := js.Parse(p, source, parser.WithSourceMapLoader(r.SrcLoader))
+	if err != nil {
+		return nil, err
+	}
+	prg, err = js.CompileAST(parsed, false)
+	if err == nil {
+		r.compliedCache.Add(bodyMd5, prg)
+	}
+	return prg, err
 }
 
 func (r *RequireModule) require(call js.FunctionCall) js.Value {
@@ -204,6 +221,11 @@ func (r *RequireModule) Require(p string) (ret js.Value, err error) {
 		return
 	}
 	ret = module.Get("exports")
+	return
+}
+
+func (r *RequireModule) Clean() {
+	r.modulesCache.Purge()
 	return
 }
 

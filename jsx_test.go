@@ -229,14 +229,3 @@ func TestExecJson(t *testing.T) {
 	}
 	t.Logf("%+v", n.Exports)
 }
-
-func TestNewMemSourceCache(t *testing.T) {
-	s := NewMemSourceCache()
-	s.Set("123", &Source{})
-
-	_, ok, _ := s.Get("123")
-	t.Logf("%+v", ok)
-
-	_, ok, _ = s.Get("123")
-	t.Logf("%+v", ok)
-}

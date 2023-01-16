@@ -3,10 +3,9 @@ package require
 import (
 	"encoding/json"
 	"errors"
+	js "github.com/dop251/goja"
 	"path"
 	"strings"
-
-	js "github.com/dop251/goja"
 )
 
 // NodeJS module search algorithm described by
@@ -34,12 +33,12 @@ func (r *RequireModule) resolve(modpath string) (module *js.Object, err error) {
 	if strings.HasPrefix(origPath, "./") ||
 		strings.HasPrefix(origPath, "/") || strings.HasPrefix(origPath, "../") ||
 		origPath == "." || origPath == ".." {
-		if module = r.modules[p]; module != nil {
+		if module, _ = r.modulesCache.Get(p); module != nil {
 			return
 		}
 		module, err = r.loadAsFileOrDirectory(p)
 		if err == nil && module != nil {
-			r.modules[p] = module
+			r.modulesCache.Add(p, module)
 		}
 	} else {
 		if module = r.nodeModules[p]; module != nil {
@@ -58,8 +57,8 @@ func (r *RequireModule) resolve(modpath string) (module *js.Object, err error) {
 }
 
 func (r *RequireModule) loadNative(path string) (*js.Object, error) {
-	module := r.modules[path]
-	if module != nil {
+	module, ok := r.modulesCache.Get(path)
+	if ok {
 		return module, nil
 	}
 
@@ -70,7 +69,7 @@ func (r *RequireModule) loadNative(path string) (*js.Object, error) {
 
 	if ldr != nil {
 		module = r.createModuleObject()
-		r.modules[path] = module
+		r.modulesCache.Add(path, module)
 		ldr(r.runtime, module)
 		return module, nil
 	}
@@ -181,14 +180,17 @@ func (r *RequireModule) createModuleObject() *js.Object {
 }
 
 func (r *RequireModule) loadModule(path string) (*js.Object, error) {
-	module := r.modules[path]
-	if module == nil {
+	module, ok := r.modulesCache.Get(path)
+	if !ok {
 		module = r.createModuleObject()
-		r.modules[path] = module
+		// 解决循环引用
+		r.modulesCache.Add(path, module)
+		end := r.r.timeTracker.Start("loadModuleFile")
 		err := r.loadModuleFile(path, module)
+		end()
 		if err != nil {
 			module = nil
-			delete(r.modules, path)
+			r.modulesCache.Remove(path)
 			if errors.Is(err, ModuleFileDoesNotExistError) {
 				err = nil
 			}
@@ -199,8 +201,9 @@ func (r *RequireModule) loadModule(path string) (*js.Object, error) {
 }
 
 func (r *RequireModule) loadModuleFile(path string, jsModule *js.Object) error {
-
+	end := r.r.timeTracker.Start("getCompiledSource")
 	prg, err := r.r.getCompiledSource(path)
+	end()
 
 	if err != nil {
 		return err
