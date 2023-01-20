@@ -26,7 +26,7 @@ func BenchmarkName(b *testing.B) {
 
 	b.Logf("-----begin-----")
 	for i := 0; i < b.N; i++ {
-		_, err := j.Exec("./test/Index", WithCache(false))
+		_, err := j.Exec("./test/Index", WithCache(false), WithAutoExecJsx(map[string]interface{}{}))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -57,8 +57,10 @@ func TestOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("----- second time -----")
-	_, err = j.Exec("./test/Index", WithCache(false))
+	e, err := j.Exec("./test/Index", WithCache(false), WithAutoExecJsx(map[string]interface{}{}))
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	t.Logf("%+v", e.Default.(VDom))
 }

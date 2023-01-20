@@ -20,11 +20,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 type Jsx struct {
-	vmPool *tPool[*versionedVm]
+	vmPool *tPool[*vmWithRegistry]
 	tr     Transformer
 
 	// goja is not goroutine-safe
@@ -98,7 +97,6 @@ func (n nativeModule) applyRunOptions(options *execOptions) {
 }
 
 type execOptions struct {
-	Fs         fs.FS
 	GlobalVars map[string]interface{}
 	// cache modules value, does not respond to file changes if true.
 	// 如果想要更改源码立即生效则不要设置 true，只有当一次性运行或生产环境为了更好的性能可以设置为 true。
@@ -109,6 +107,7 @@ type execOptions struct {
 	NativeModules    []nativeModule
 }
 
+// WithNativeModule 注意，由于有 vm 对象池公用 vm 的情况，所以只能保证同步执行的代码能正确拿到本次运行的值，如果是第一次运行导出 function 再执行的情况，可能拿到的是第二次运行指定的 Module。
 func WithNativeModule(path string, obj map[string]interface{}) interface {
 	OptionExec
 	OptionRender
@@ -122,31 +121,11 @@ func WithNativeModule(path string, obj map[string]interface{}) interface {
 type AutoExecJsxProps interface{}
 
 type renderOptions struct {
-	Fs            fs.FS
 	Cache         bool
 	NativeModules []nativeModule
 }
 
 type RunJsOption func(*execOptions)
-
-type fsOption struct {
-	fs fs.FS
-}
-
-func (c fsOption) applyRunOptions(options *execOptions) {
-	options.Fs = c.fs
-}
-
-func (c fsOption) applyRenderOptions(options *renderOptions) {
-	options.Fs = c.fs
-}
-
-func WithFs(fs fs.FS) interface {
-	OptionExec
-	OptionRender
-} {
-	return fsOption{fs: fs}
-}
 
 type autoExecJsxOption struct {
 	props AutoExecJsxProps
@@ -191,6 +170,7 @@ func (g globalVarOption) applyRunOptions(options *execOptions) {
 	options.GlobalVars[g.k] = g.v
 }
 
+// WithGlobalVar 注意，由于有 vm 对象池公用 vm 的情况，所以只能保证同步执行的代码能正确拿到本次运行的值，如果是第一次运行导出 function 再执行的情况，可能拿到的是第二次运行指定的 GlobalVar。
 func WithGlobalVar(k string, v interface{}) OptionExec {
 	return globalVarOption{
 		k: k,
@@ -221,13 +201,6 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 	}
 	defer j.putVm(vm)
 
-	fileSys := p.Fs
-	if fileSys == nil {
-		fileSys = stdFileSystem{}
-	}
-
-	vm.registry.SrcLoader = j.registryLoader(fileSys)
-
 	if !p.Cache {
 		vm.requireModule.Clean() // to clear modules cache
 	}
@@ -253,7 +226,7 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 		fileName = "root.js"
 	}
 
-	v, err := j.runJs(vm.vm, fileName, src, TransformerFormatIIFE)
+	v, err := j.runJs(vm, fileName, src, TransformerFormatIIFE)
 	if err != nil {
 		return
 	}
@@ -278,7 +251,7 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 	return
 }
 
-func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform TransformerFormat) (v goja.Value, err error) {
+func (j *Jsx) runJs(vm *vmWithRegistry, fileName string, src []byte, transform TransformerFormat) (v goja.Value, err error) {
 	if transform != 0 {
 		key := mD5(src)
 		s, exist, err := j.cache.Get(key)
@@ -296,36 +269,30 @@ func (j *Jsx) runJs(vm *goja.Runtime, fileName string, src []byte, transform Tra
 		}
 	}
 
-	v, err = vm.RunScript(fileName, string(src))
+	v, err = vm.vm.RunScript(fileName, string(src))
 	if err != nil {
 		return nil, PrettifyException(err)
 	}
 	return v, nil
 }
 
-type versionedVm struct {
+type vmWithRegistry struct {
 	once          sync.Once
 	vm            *goja.Runtime
 	registry      *require.Registry
 	requireModule *require.RequireModule
-	version       int32
 }
 
-func (j *Jsx) getVm() (*versionedVm, error) {
+func (j *Jsx) getVm() (*vmWithRegistry, error) {
 	vm, err := j.vmPool.Get()
 	if err != nil {
 		return nil, fmt.Errorf("pool.Get error: %w", err)
 	}
 
-	vm.once.Do(func() {
-		vm.requireModule = vm.registry.Enable(vm.vm)
-		console.Enable(vm.vm, nil)
-	})
-
 	return vm, nil
 }
 
-func (j *Jsx) putVm(v *versionedVm) error {
+func (j *Jsx) putVm(v *vmWithRegistry) error {
 	return j.vmPool.Put(v)
 }
 
@@ -335,7 +302,14 @@ func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n st
 	for _, o := range opts {
 		o.applyRenderOptions(&p)
 	}
-	ex, err := j.Exec(file, WithFs(p.Fs), WithCache(p.Cache), WithAutoExecJsx(props))
+
+	var eo = []OptionExec{
+		WithCache(p.Cache), WithAutoExecJsx(props),
+	}
+	for _, m := range p.NativeModules {
+		eo = append(eo, WithNativeModule(m.Path, m.Obj))
+	}
+	ex, err := j.Exec(file, eo...)
 	if err != nil {
 		return
 	}
@@ -510,6 +484,8 @@ func (j *Jsx) RegisterModule(name string, obj map[string]interface{}) {
 type stdFileSystem struct {
 }
 
+var StdFileSystem = stdFileSystem{}
+
 func (f stdFileSystem) Open(name string) (fs.File, error) {
 	return os.Open(name)
 }
@@ -517,13 +493,16 @@ func (f stdFileSystem) Open(name string) (fs.File, error) {
 type Option struct {
 	SourceCache SourceCache
 	Debug       bool // enable to get more log
+	// 最多的 vm 对象数量，指定为 1 表示只会同时有一个 vm 运行，默认为 2000
 	VmMaxTotal  int
 	Transformer Transformer
+	// Fs 没办法做到每次执行代码时指定，因为 require 可能会发生在异步 function 里，fs 改变会导致加载文件错误
+	Fs fs.FS // default is StdFileSystem
 }
 
 func NewJsx(op Option) (*Jsx, error) {
 	if op.VmMaxTotal <= 0 {
-		op.VmMaxTotal = 20
+		op.VmMaxTotal = 2000
 	}
 
 	if op.Transformer == nil {
@@ -534,19 +513,28 @@ func NewJsx(op Option) (*Jsx, error) {
 		op.SourceCache = NewMemSourceCache()
 	}
 
+	if op.Fs == nil {
+		op.Fs = StdFileSystem
+	}
+
 	j := &Jsx{
-		vmPool: newTPool(op.VmMaxTotal, func() *versionedVm {
+		vmPool: newTPool(op.VmMaxTotal, func() *vmWithRegistry {
 			vm := goja.New()
 			vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 
 			if op.Debug {
 				log.Printf("new vm")
 			}
-			return &versionedVm{
-				once:     sync.Once{},
-				vm:       vm,
-				registry: require.NewRegistry(),
-				version:  -1,
+			registry := require.NewRegistryWithLoader(registryLoader(op.Fs, op.SourceCache, op.Transformer))
+			requireModule := registry.Enable(vm)
+
+			console.Enable(vm, nil)
+
+			return &vmWithRegistry{
+				once:          sync.Once{},
+				vm:            vm,
+				registry:      registry,
+				requireModule: requireModule,
 			}
 		}),
 		tr:    op.Transformer,
@@ -558,15 +546,9 @@ func NewJsx(op Option) (*Jsx, error) {
 	return j, nil
 }
 
-func (j *Jsx) registryLoader(fileSys fs.FS) func(path string) ([]byte, error) {
+func registryLoader(fileSys fs.FS, cache SourceCache, tr Transformer) require.SourceLoader {
 	return func(path string) ([]byte, error) {
 		var fileBody []byte
-
-		if j.debug {
-			fmt.Printf("tryload: %v\n", path)
-		}
-
-		s := time.Now()
 
 		if strings.HasSuffix(path, "node_modules/react/jsx-runtime") {
 			fileBody = js.JsxRuntime
@@ -607,19 +589,13 @@ func (j *Jsx) registryLoader(fileSys fs.FS) func(path string) ([]byte, error) {
 				return nil, require.ModuleFileDoesNotExistError
 			}
 		}
-		if j.debug {
-			fmt.Printf("load: %v", path)
-		}
-		var err error
 
-		if j.debug {
-			fmt.Printf(" transform")
-		}
+		var err error
 
 		srcMd5 := mD5(fileBody)
 		var cached bool
-		if j.cache != nil {
-			fi, exist, err := j.cache.Get(srcMd5)
+		if cache != nil {
+			fi, exist, err := cache.Get(srcMd5)
 			if err != nil {
 				return nil, err
 			}
@@ -630,26 +606,21 @@ func (j *Jsx) registryLoader(fileSys fs.FS) func(path string) ([]byte, error) {
 		}
 
 		if cached {
-			if j.debug {
-				fmt.Printf(" cached")
-			}
+
 		} else {
-			fileBody, err = j.tr.Transform(path, fileBody, TransformerFormatCommonJS)
+			fileBody, err = tr.Transform(path, fileBody, TransformerFormatCommonJS)
 			if err != nil {
 				return nil, fmt.Errorf("load file error: %w", err)
 			}
 
-			if j.cache != nil {
-				err = j.cache.Set(srcMd5, fileBody)
+			if cache != nil {
+				err = cache.Set(srcMd5, fileBody)
 				if err != nil {
 					return nil, nil
 				}
 			}
 		}
 
-		if j.debug {
-			fmt.Printf(" %v\n", time.Now().Sub(s))
-		}
 		return fileBody, nil
 	}
 }

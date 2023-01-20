@@ -15,8 +15,8 @@ var srcfs embed.FS
 func TestJsx(t *testing.T) {
 	j, err := NewJsx(Option{
 		SourceCache: nil,
-		//SourceFs:    srcfs,
-		Debug: false,
+		Fs:          srcfs,
+		Debug:       false,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -26,9 +26,7 @@ func TestJsx(t *testing.T) {
 		"useEffect": func() {},
 	})
 
-	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`},
-		WithFs(srcfs),
-	)
+	s, err := j.Render("./test/Index", map[string]interface{}{"li": []int64{1, 2, 3, 4}, "html": `<h1>dangerouslySetInnerHTML</h1>`})
 	if err != nil {
 		t.Fatal(err)
 	}

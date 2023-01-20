@@ -1,6 +1,7 @@
-import Form from "./Form";
 
 export default function App(props) {
+  const Form = require("./Form").default;
+
   return <div className="bg-red-50 border-black" class="text-black">
     a /2
     {

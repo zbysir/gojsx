@@ -1,9 +1,8 @@
-import App from "./App";
-// import {useEffect, useState} from "react";
+// import App from "./App";
 
 export default function Index(props) {
-  // useEffect(() => {
-  // }, []);
+  const App = require("./App").default
+
   return <html lang="zh">
   <head>
     <meta charSet="UTF-8"/>

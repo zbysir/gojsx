@@ -179,22 +179,20 @@ func (r *Registry) getCompiledSource(p string) (*js.Program, error) {
 		return nil, err
 	}
 
-	bodyMd5 := mD5(buf)
-	prg, ok := r.compliedCache.Get(bodyMd5)
+	cacheKey := p + mD5(buf)
+	prg, ok := r.compliedCache.Get(cacheKey)
 	if ok {
 		return prg, nil
 	}
 
-	s := string(buf)
-
-	source := "(function(exports, require, module) {" + s + "\n})"
+	source := "(function(exports, require, module) {" + string(buf) + "\n})"
 	parsed, err := js.Parse(p, source, parser.WithSourceMapLoader(r.SrcLoader))
 	if err != nil {
 		return nil, err
 	}
 	prg, err = js.CompileAST(parsed, false)
 	if err == nil {
-		r.compliedCache.Add(bodyMd5, prg)
+		r.compliedCache.Add(cacheKey, prg)
 	}
 	return prg, err
 }
