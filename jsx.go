@@ -712,14 +712,14 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 			v.renderStyle(s, val)
 			s.WriteString(`"`)
 		default:
+			s.WriteString(" ")
+			if n, ok := propsToAttr[k]; ok {
+				s.WriteString(n)
+			} else {
+				s.WriteString(k)
+			}
 			switch val.(type) {
 			case string, int, int32, int16, int8, int64, float64, float32:
-				s.WriteString(" ")
-				if n, ok := propsToAttr[k]; ok {
-					s.WriteString(n)
-				} else {
-					s.WriteString(k)
-				}
 				s.WriteString(`=`)
 				v.renderAttributeValue(s, val)
 			}
