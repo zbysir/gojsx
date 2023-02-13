@@ -6,6 +6,7 @@ import (
 	"github.com/yuin/goldmark"
 	meta "github.com/yuin/goldmark-meta"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	"os"
 	"testing"
 )
@@ -89,6 +90,12 @@ a={1}/> <> { 1 } </> hh {1}`,
 			Out: `<pre dangerouslySetInnerHTML={{ __html: "<code class=\"language-js\"> console.log(&quot;a c\\ &quot;)\n</code>" }}></pre>
 `,
 		},
+		{
+			Name: "Custom ID",
+			In:   `# A {id} {#a-A-id}`,
+			Out: `<h1 id="a-A-id">A {id}</h1>
+`,
+		},
 	}
 
 	opts := []goldmark.Option{
@@ -96,6 +103,10 @@ a={1}/> <> { 1 } </> hh {1}`,
 			meta.Meta,
 			extension.GFM,
 			NewMdJsx("mdx"),
+		),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+			parser.WithHeadingAttribute(), // handles special case like ### heading ### {#id}
 		),
 	}
 	for _, c := range cases {

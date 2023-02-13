@@ -101,7 +101,9 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 			extension.GFM,
 		),
 		goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(), // for toc
+			parser.WithAutoHeadingID(),
+			// https://github.com/mdx-js/mdx/issues/1279
+			parser.WithHeadingAttribute(), // handles special case like ### heading ### {#id}
 		),
 	}
 	switch ext {
