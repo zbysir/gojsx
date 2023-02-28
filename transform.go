@@ -14,7 +14,6 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
 	"github.com/zbysir/gojsx/pkg/mdx"
-	"go.abhg.dev/goldmark/toc"
 	"path/filepath"
 	"strings"
 )
@@ -71,24 +70,6 @@ func trapBOM(fileBytes []byte) []byte {
 	return trimmedBytes
 }
 
-type tableOfContentItem struct {
-	Items []tableOfContentItem `json:"items"`
-	Title string               `json:"title"`
-	Id    string               `json:"id"`
-}
-
-func toTocItems(t toc.Items) []tableOfContentItem {
-	ts := make([]tableOfContentItem, len(t))
-	for i, v := range t {
-		ts[i] = tableOfContentItem{
-			Items: toTocItems(v.Items),
-			Title: string(v.Title),
-			Id:    string(v.ID),
-		}
-	}
-	return ts
-}
-
 // TODO SourceMap
 // 将 md 转换成 jsx 语法
 func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte, err error) {
@@ -126,11 +107,6 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 		doc.Dump(src, 1)
 	}
 
-	tocTree, err := toc.Inspect(doc, src)
-	if err != nil {
-		err = fmt.Errorf("toc.Inspect error: %w", err)
-		return
-	}
 	err = md.Renderer().Render(&mdHtml, src, doc)
 	if err != nil {
 		return
@@ -146,9 +122,7 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 	exportObj := map[string]interface{}{
 		"meta": toStrMap(m),
 	}
-	if tocTree != nil {
-		exportObj["toc"] = toTocItems(tocTree.Items)
-	}
+
 	if e.markdownExport != nil {
 		export := e.markdownExport(ctx, doc, src)
 		for k, v := range export {

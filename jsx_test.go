@@ -3,6 +3,7 @@ package gojsx
 import (
 	"embed"
 	_ "embed"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"sync"
 	"testing"
@@ -31,7 +32,7 @@ func TestJsx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Logf("%+v", s)
+	assert.Equal(t, "<!DOCTYPE html><html datatype lang=\"zh\"><head><meta charSet=\"UTF-8\"/><title>UnTitled</title><link href=\"https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css\" rel=\"stylesheet\"/></head><body><div a b=\"1\" c=\"1.1\"></div><div class=\"bg-red-50 border-black text-black\">a /2<div b=\"2\" class=\"form\" style=\"font-size: 1px; padding: 2px;\"> f <ul><li> 1 </li><li> 2 </li><li> 3 </li><li> 4 </li></ul> x:2c: c1</div><img alt=\"asdfsf&#34;12312\" data-x=\"{&#34;a&#34;:&#34;`&#39;&#34;}\" src=\"a.jpb\"/><p>&lt;h1&gt;dangerouslySetInnerHTML&lt;/h1&gt;</p><p><h1>dangerouslySetInnerHTML</h1></p></div><button class=\"btn btn-square btn-xs\"><svg class=\"h-6 w-6\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"></path></svg></button></body></html>", s)
 }
 
 //go:embed test/blog/tailwind.css

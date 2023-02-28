@@ -677,7 +677,7 @@ func sortMap(ps map[string]interface{}, f func(k string, v interface{})) {
 	}
 }
 
-func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
+func renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 	if len(ps) == 0 {
 		return
 	}
@@ -704,12 +704,12 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 		case "className":
 			s.WriteString(` class="`)
 			if val != nil {
-				v.renderClassName(s, val, true)
+				renderClassName(s, val, true)
 			}
 			s.WriteString(`"`)
 		case "style":
 			s.WriteString(` style="`)
-			v.renderStyle(s, val)
+			renderStyle(s, val)
 			s.WriteString(`"`)
 		default:
 			s.WriteString(" ")
@@ -721,13 +721,13 @@ func (v VDom) renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 			switch val.(type) {
 			case string, int, int32, int16, int8, int64, float64, float32:
 				s.WriteString(`=`)
-				v.renderAttributeValue(s, val)
+				renderAttributeValue(s, val)
 			}
 		}
 	})
 }
 
-func (v VDom) renderAttributeValue(s *strings.Builder, val interface{}) {
+func renderAttributeValue(s *strings.Builder, val interface{}) {
 	// 只支持 string/int
 	switch t := val.(type) {
 	case string:
@@ -766,11 +766,11 @@ func cleanClass(c string) string {
 	return s.String()
 }
 
-func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst bool) {
+func renderClassName(s *strings.Builder, className interface{}, isFirst bool) {
 	switch t := className.(type) {
 	case []interface{}:
 		for index, i := range t {
-			v.renderClassName(s, i, isFirst && index == 0)
+			renderClassName(s, i, isFirst && index == 0)
 		}
 	case string:
 		if !isFirst {
@@ -780,11 +780,11 @@ func (v VDom) renderClassName(s *strings.Builder, className interface{}, isFirst
 	}
 }
 
-func (v VDom) renderStyle(s *strings.Builder, val interface{}) {
+func renderStyle(s *strings.Builder, val interface{}) {
 	isFirst := true
 	switch t := val.(type) {
 	case map[string]interface{}:
-		for k, v := range t {
+		sortMap(t, func(k string, v interface{}) {
 			if isFirst {
 				isFirst = false
 			} else {
@@ -796,7 +796,7 @@ func (v VDom) renderStyle(s *strings.Builder, val interface{}) {
 			s.WriteString(" ")
 			s.WriteString(fmt.Sprintf("%v", v))
 			s.WriteString(";")
-		}
+		})
 	default:
 		panic(val)
 	}
@@ -875,30 +875,39 @@ func (v VDom) string(indent int) string {
 	return s.String()
 }
 
-func (v VDom) renderChildren(s *strings.Builder, c interface{}) {
-	switch t := c.(type) {
-	case string:
-		s.WriteString(template.HTMLEscapeString(t))
-	case map[string]interface{}:
-		s.WriteString(VDom(t).Render())
-	case []interface{}:
-		for _, c := range t {
-			if c != nil {
-				v.renderChildren(s, c)
-			}
-		}
-	default:
-		s.WriteString(template.HTMLEscapeString(fmt.Sprintf("%v", c)))
-	}
+func (v VDom) Render() string {
+	return Render(v)
 }
 
-func (v VDom) Render() string {
+func Render(i interface{}) string {
 	var s strings.Builder
-	v.render(&s)
+	render(&s, i)
 	return s.String()
 }
 
-func (v VDom) render(s *strings.Builder) {
+func render(s *strings.Builder, c interface{}) {
+	var v map[string]interface{}
+
+	switch t := c.(type) {
+	case string:
+		s.WriteString(template.HTMLEscapeString(t))
+		return
+	case []interface{}:
+		for _, c := range t {
+			if c != nil {
+				render(s, c)
+			}
+		}
+		return
+	case map[string]interface{}:
+		v = t
+	case VDom:
+		v = t
+	default:
+		s.WriteString(template.HTMLEscapeString(fmt.Sprintf("%v", c)))
+		return
+	}
+
 	if v == nil {
 		return
 	}
@@ -917,7 +926,7 @@ func (v VDom) render(s *strings.Builder) {
 	// Fragment 只渲染子节点
 	if nodeName == "" {
 		if children != nil {
-			v.renderChildren(s, children)
+			render(s, children)
 		}
 		return
 	}
@@ -936,7 +945,7 @@ func (v VDom) render(s *strings.Builder) {
 	s.WriteString("<")
 	s.WriteString(nodeName)
 	if attr != nil {
-		v.renderAttributes(s, attrMap)
+		renderAttributes(s, attrMap)
 	}
 
 	if selfclose {
@@ -946,26 +955,25 @@ func (v VDom) render(s *strings.Builder) {
 	}
 
 	s.WriteString(">")
-	html, ok := lockupMap[map[string]interface{}](attrMap, "dangerouslySetInnerHTML")
+	html, ok := lookupMap[map[string]interface{}](attrMap, "dangerouslySetInnerHTML")
 	if ok {
-		h, ok := lockupMap[string](html, "__html")
+		h, ok := lookupMap[string](html, "__html")
 		if ok {
 			s.WriteString(h)
 		} else {
-			v.renderChildren(s, html)
+			render(s, html)
 		}
 	} else {
 		if children != nil {
-			v.renderChildren(s, children)
+			render(s, children)
 		}
 	}
 
 	s.WriteString(fmt.Sprintf("</%v>", nodeName))
 
-	return
 }
 
-func lockupMapInterface(m interface{}, keys ...string) (interface{}, bool) {
+func lookupMapI(m interface{}, keys ...string) (interface{}, bool) {
 	if len(keys) == 0 {
 		return m, true
 	}
@@ -977,12 +985,12 @@ func lockupMapInterface(m interface{}, keys ...string) (interface{}, bool) {
 	if !ok {
 		return nil, false
 	}
-	return lockupMapInterface(i, keys[1:]...)
+	return lookupMapI(i, keys[1:]...)
 }
 
-// lockupMap({a: {b: 1}}, "a", "b") => 1
-func lockupMap[T any](m interface{}, keys ...string) (t T, b bool) {
-	m, ok := lockupMapInterface(m, keys...)
+// lookupMap({a: {b: 1}}, "a", "b") => 1
+func lookupMap[T any](m interface{}, keys ...string) (t T, b bool) {
+	m, ok := lookupMapI(m, keys...)
 	if ok {
 		if m, ok := m.(T); ok {
 			return m, true
