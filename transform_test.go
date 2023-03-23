@@ -142,3 +142,15 @@ const history = [
 		t.Logf("%s", b)
 	})
 }
+
+func TestMermaid(t *testing.T) {
+	x := NewEsBuildTransform(EsBuildTransformOptions{})
+	x.debug = true
+
+	b, err := x.Transform("1.md", []byte("```mermaid\ngraph TD;\n    A-->B;\n    A-->C;\n    B-->D;\n    C-->D;\n```"), TransformerFormatIIFE)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("%s", b)
+}

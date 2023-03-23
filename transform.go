@@ -14,6 +14,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
 	"github.com/zbysir/gojsx/pkg/mdx"
+	"go.abhg.dev/goldmark/mermaid"
 	"path/filepath"
 	"strings"
 )
@@ -80,6 +81,9 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 		goldmark.WithExtensions(
 			meta.Meta,
 			extension.GFM,
+			&mermaid.Extender{
+				RenderMode: mermaid.RenderModeClient,
+			},
 		),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
