@@ -12,9 +12,13 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 	"github.com/zbysir/gojsx/pkg/mdx"
+	mermaid2 "github.com/zbysir/gojsx/pkg/mermaid"
 	"go.abhg.dev/goldmark/mermaid"
+	"log"
 	"path/filepath"
 	"strings"
 )
@@ -104,6 +108,11 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 
 	opts = append(opts, e.markdownOptions...)
 	md := goldmark.New(opts...)
+
+	// 移除下面的代码在 https://github.com/abhinav/goldmark-mermaid/issues/31 解决之后
+	md.Renderer().AddOptions(renderer.WithNodeRenderers(
+		util.Prioritized(&mermaid2.ClientRenderer{}, 10),
+	))
 
 	doc := md.Parser().Parse(text.NewReader(src), parser.WithContext(ctx))
 
@@ -208,8 +217,10 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 			return
 		}
 		loader = api.LoaderTSX
+		if e.debug {
+			log.Printf("transformMarkdown code: %s", code)
+		}
 
-		//log.Printf("transformMarkdown code: %s", code)
 	default:
 		var ok bool
 		loader, ok = defaultExtensionToLoaderMap[ext]

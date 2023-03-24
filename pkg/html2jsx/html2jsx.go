@@ -62,6 +62,10 @@ func toStringCode(s []byte) []byte {
 	je := json.NewEncoder(&bf)
 	je.SetEscapeHTML(false)
 	_ = je.Encode(string(s))
+
+	// 可以尝试更高效的 strconv.Quote 方法
+	// strconv.Quote(string(s))
+
 	return bytes.TrimSuffix(bf.Bytes(), []byte{'\n'})
 }
 
@@ -72,8 +76,13 @@ func (c *ctx) toJsxToken(tt htmlparser.TokenType, src []byte, enableJsx bool) []
 		case htmlparser.EndTagToken:
 			var tag = src[2 : len(src)-1]
 			if bytes.Equal(c.dangerouslyHTMLStartTag, tag) {
-				inner := toStringCode(c.dangerouslySetInnerHTML.Bytes())
-				bs := []byte(fmt.Sprintf(` dangerouslySetInnerHTML={{ __html: %s }}>%s`, inner, src))
+				innerBs := c.dangerouslySetInnerHTML.Bytes()
+				var bs []byte
+				if len(innerBs) != 0 {
+					bs = []byte(fmt.Sprintf(` dangerouslySetInnerHTML={{ __html: %s }}>%s`, toStringCode(innerBs), src))
+				} else {
+					bs = []byte(fmt.Sprintf(`>%s`, src))
+				}
 				c.dangerouslySetInnerHTML.Reset()
 				c.dangerouslyHTMLStartTag = nil
 				c.startDangerouslySetInnerHTML = false
