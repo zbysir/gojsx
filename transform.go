@@ -84,6 +84,10 @@ func (e *EsBuildTransform) transformMarkdown(ext string, src []byte) (out []byte
 			extension.GFM,
 			&mermaid.Extender{
 				RenderMode: mermaid.RenderModeClient,
+				MermaidJS:  "https://unpkg.com/mermaid@9/dist/mermaid.min.js",
+				NoScript:   false,
+				MMDC:       nil,
+				Theme:      "",
 			},
 		),
 		goldmark.WithParserOptions(
