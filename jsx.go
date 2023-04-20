@@ -784,6 +784,7 @@ func renderStyle(s *strings.Builder, val interface{}) {
 	isFirst := true
 	switch t := val.(type) {
 	case map[string]interface{}:
+		// for style={{color: "red"}}
 		sortMap(t, func(k string, v interface{}) {
 			if isFirst {
 				isFirst = false
@@ -797,8 +798,11 @@ func renderStyle(s *strings.Builder, val interface{}) {
 			s.WriteString(fmt.Sprintf("%v", v))
 			s.WriteString(";")
 		})
+	case string:
+		// for style=""
+		s.WriteString(t)
 	default:
-		panic(val)
+		s.WriteString(fmt.Sprintf("%v", t))
 	}
 }
 
