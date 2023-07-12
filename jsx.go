@@ -862,12 +862,7 @@ func (v VDom) string(indent int) string {
 		}
 	}
 	v.printIndent(&s, indent)
-
-	if v["jsxs"] != nil {
-		s.WriteString(fmt.Sprintf("[%v]", nodeName))
-	} else {
-		s.WriteString(fmt.Sprintf("<%v>", nodeName))
-	}
+	s.WriteString(fmt.Sprintf("<%v>", nodeName))
 
 	v.printAttr(&s, attr)
 	s.WriteString("\n")

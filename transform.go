@@ -44,7 +44,6 @@ type EsBuildTransform struct {
 type EsBuildTransformOptions struct {
 	Minify          bool
 	MarkdownOptions []goldmark.Option
-	MarkdownExport  func(ctx parser.Context, n ast.Node, src []byte) map[string]interface{}
 }
 
 func NewEsBuildTransform(o EsBuildTransformOptions) *EsBuildTransform {
@@ -235,19 +234,44 @@ func (e *EsBuildTransform) Transform(filePath string, code []byte, format Transf
 	}
 
 	result := api.Transform(string(code), api.TransformOptions{
-		Loader:            loader,
-		Target:            api.ESNext,
-		JSXMode:           api.JSXModeAutomatic,
-		Format:            esFormat,
-		Platform:          api.PlatformNode,
+		Color:             0,
+		LogLevel:          0,
+		LogLimit:          0,
+		LogOverride:       nil,
 		Sourcemap:         sourcemapx,
 		SourceRoot:        "",
-		Sourcefile:        file,
+		SourcesContent:    0,
+		Target:            api.ESNext,
+		Engines:           nil,
+		Supported:         nil,
+		Platform:          api.PlatformNode,
+		Format:            esFormat,
+		GlobalName:        globalName,
+		MangleProps:       "",
+		ReserveProps:      "",
+		MangleQuoted:      0,
+		MangleCache:       nil,
+		Drop:              0,
+		MinifyWhitespace:  e.minify,
 		MinifyIdentifiers: e.minify,
 		MinifySyntax:      e.minify,
-		MinifyWhitespace:  e.minify,
-		GlobalName:        globalName,
+		Charset:           0,
+		TreeShaking:       0,
+		IgnoreAnnotations: false,
+		LegalComments:     0,
+		JSXMode:           api.JSXModeAutomatic,
+		JSXFactory:        "h",
+		JSXFragment:       "b",
+		JSXImportSource:   "react",
+		JSXDev:            false,
+		TsconfigRaw:       "",
+		Banner:            "",
 		Footer:            globalName,
+		Define:            nil,
+		Pure:              nil,
+		KeepNames:         false,
+		Sourcefile:        file,
+		Loader:            loader,
 	})
 
 	if len(result.Errors) != 0 {
