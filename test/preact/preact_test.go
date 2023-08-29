@@ -86,9 +86,16 @@ func TestPreactSSR(t *testing.T) {
 
 			file := fmt.Sprintf("./src/page/%s.tsx", fileName)
 
-			var code = []byte(fmt.Sprintf(`import Layout from "./src/index.tsx"; import Page from "%v" ;
+			var code []byte
+			if r.URL.Query().Has("ssr") {
+				code = []byte(fmt.Sprintf(`import Layout from "./src/index.tsx"; import Page from "%v" ;
 export default function a ({js}){
     return <Layout js={js}> <Page/></Layout>}`, file))
+			} else {
+				code = []byte(fmt.Sprintf(`import Layout from "./src/index.tsx"; 
+export default function a ({js}){
+    return <Layout js={js}></Layout>}`))
+			}
 
 			log.Printf("code: %s", code)
 
@@ -150,7 +157,10 @@ export default function a ({js}){
 			// 这个后期可以做成由用户配置，和 ImportMap 类似
 			//sJs = strings.ReplaceAll(sJs, "react/jsx-runtime", "/jslib/react/jsx-runtime")
 			sJs = strings.ReplaceAll(sJs, "react/jsx-runtime", "https://cdn.skypack.dev/preact/compat/jsx-runtime")
+			//sJs = strings.ReplaceAll(sJs, "react/jsx-runtime", "https://cdn.skypack.dev/react/jsx-runtime")
 			sJs = strings.ReplaceAll(sJs, `"preact/hooks"`, `"https://cdn.skypack.dev/preact/hooks"`)
+			//sJs = strings.ReplaceAll(sJs, `"preact/hooks"`, `"https://cdn.skypack.dev/react"`)
+			sJs = strings.ReplaceAll(sJs, `"preact"`, `"https://cdn.skypack.dev/preact"`)
 
 			w.Header().Set("Content-Type", "application/javascript")
 

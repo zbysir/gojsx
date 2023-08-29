@@ -228,3 +228,24 @@ func TestExecJson(t *testing.T) {
 	}
 	t.Logf("%+v", n.Exports)
 }
+
+func TestHydrate(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, ctx, err := j.RenderCode([]byte(`function HelloJSX(props){return <p onClick={()=>alert(props.a)} hydrate-a={JSON.stringify(props.a)}></p>}; export default (props)=><HelloJSX {...props}></HelloJSX>`), map[string]interface{}{
+		"a": map[string]interface{}{"name": "1"},
+	}, WithFileName("1.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, `<p data-hydrate="0" onClick></p>`, v)
+	assert.Equal(t, map[string]map[string]string{
+		"0": {
+			"hydrate-a": `{"name":"1"}`,
+		},
+	}, ctx.Hydrate)
+}

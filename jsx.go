@@ -298,6 +298,31 @@ func (j *Jsx) putVm(v *vmWithRegistry) error {
 
 // Render a component to html
 func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n string, err error) {
+	n, _, err = j.RenderCtx(file, props, opts...)
+	return n, err
+}
+
+// RenderCode code to html
+func (j *Jsx) RenderCode(code []byte, props interface{}, opts ...OptionExec) (n string, ctx *RenderCtx, err error) {
+	opts = append(opts, WithAutoExecJsx(props))
+	ex, err := j.ExecCode(code, opts...)
+	if err != nil {
+		return
+	}
+
+	switch t := ex.Default.(type) {
+	case VDom:
+		s, ctx := t.Render()
+		return s, ctx, nil
+	default:
+		log.Printf("ex.Default: %#v", ex.Default)
+		panic(t)
+	}
+	return
+}
+
+// RenderCtx a component to html
+func (j *Jsx) RenderCtx(file string, props interface{}, opts ...OptionRender) (n string, ctx *RenderCtx, err error) {
 	var p renderOptions
 	for _, o := range opts {
 		o.applyRenderOptions(&p)
@@ -316,7 +341,8 @@ func (j *Jsx) Render(file string, props interface{}, opts ...OptionRender) (n st
 
 	switch t := ex.Default.(type) {
 	case VDom:
-		return t.Render(), nil
+		s, ctx := t.Render()
+		return s, ctx, nil
 	default:
 		panic(t)
 	}
@@ -400,22 +426,22 @@ type VDomOrInterface struct {
 	Any interface{}
 }
 
-func (v *VDomOrInterface) render(props goja.Value) (string, error) {
-	if v.Callable != nil {
-		val, err := v.Callable(props)
-		if err != nil {
-			return "", err
-		}
-		vdom, err := tryToVDom(val.Export())
-		if err != nil {
-			return "", err
-		}
-
-		return vdom.Render(), nil
-	}
-
-	return "", nil
-}
+//func (v *VDomOrInterface) render(props goja.Value) (string, error) {
+//	if v.Callable != nil {
+//		val, err := v.Callable(props)
+//		if err != nil {
+//			return "", err
+//		}
+//		vdom, err := tryToVDom(val.Export())
+//		if err != nil {
+//			return "", err
+//		}
+//
+//		return vdom.Render(), nil
+//	}
+//
+//	return "", nil
+//}
 
 func parseModuleExport(i interface{}, tryVDom bool, vm *goja.Runtime) (m *ModuleExport, err error) {
 	var vDomOrInterface ExportDefault
@@ -677,29 +703,44 @@ func sortMap(ps map[string]interface{}, f func(k string, v interface{})) {
 	}
 }
 
-func renderAttributes(s *strings.Builder, ps map[string]interface{}) {
-	if len(ps) == 0 {
+var currHydrateId = 0
+
+func renderAttributes(s *strings.Builder, ctx *RenderCtx, props map[string]interface{}) {
+	if len(props) == 0 {
 		return
 	}
 
 	// 如果 attr 里同时存在 class 和 className，则会将 class 放到 className 里统一处理。
-	if c, ok := ps["class"]; ok {
-		if cn, ok := ps["className"]; ok {
-			ps["className"] = []interface{}{cn, c}
+	if c, ok := props["class"]; ok {
+		if cn, ok := props["className"]; ok {
+			props["className"] = []interface{}{cn, c}
 		} else {
-			ps["className"] = c
+			props["className"] = c
 		}
 
-		delete(ps, "class")
+		delete(props, "class")
 	}
 
-	// 排序
+	var hydrate = map[string]string{}
+	// 转为 16 进制
+	var hydrateId = fmt.Sprintf("%x", currHydrateId)
+	currHydrateId++
+
+	// 稳定顺序
 	// TODO 考虑直接使用 goja.Object 用作参数，不直接使用 Export 出来的 map，这样能保留字段排序。
-	sortMap(ps, func(k string, val interface{}) {
+	sortMap(props, func(k string, val interface{}) {
 		if k == "children" || k == "dangerouslySetInnerHTML" {
 			return
 		}
-
+		if strings.HasPrefix(k, "hydrate") {
+			s.WriteString(` data-hydrate="`)
+			s.WriteString(hydrateId)
+			s.WriteString(`"`)
+			//
+			//log.Printf("renderAttributes: %s,val: %#v", k, val)
+			hydrate[k] = fmt.Sprintf(`%s`, val)
+			return
+		}
 		switch k {
 		case "className":
 			s.WriteString(` class="`)
@@ -725,6 +766,10 @@ func renderAttributes(s *strings.Builder, ps map[string]interface{}) {
 			}
 		}
 	})
+
+	if len(hydrate) > 0 {
+		ctx.AddHydrate(hydrateId, hydrate)
+	}
 }
 
 func renderAttributeValue(s *strings.Builder, val interface{}) {
@@ -874,17 +919,31 @@ func (v VDom) string(indent int) string {
 	return s.String()
 }
 
-func (v VDom) Render() string {
+func (v VDom) Render() (string, *RenderCtx) {
 	return Render(v)
 }
 
-func Render(i interface{}) string {
-	var s strings.Builder
-	render(&s, i)
-	return s.String()
+type RenderCtx struct {
+	// Hydrate 用于将组件的数据提取到单独的文件中。
+	Hydrate map[string]map[string]string // id => [event type => event code]
 }
 
-func render(s *strings.Builder, c interface{}) {
+// AddHydrate add hydrate
+func (ctx *RenderCtx) AddHydrate(id string, props map[string]string) {
+	if ctx.Hydrate == nil {
+		ctx.Hydrate = map[string]map[string]string{}
+	}
+	ctx.Hydrate[id] = props
+}
+
+func Render(i interface{}) (string, *RenderCtx) {
+	var s strings.Builder
+	var ctx RenderCtx
+	render(&s, &ctx, i)
+	return s.String(), &ctx
+}
+
+func render(s *strings.Builder, ctx *RenderCtx, c interface{}) {
 	var v map[string]interface{}
 
 	switch t := c.(type) {
@@ -894,7 +953,7 @@ func render(s *strings.Builder, c interface{}) {
 	case []interface{}:
 		for _, c := range t {
 			if c != nil {
-				render(s, c)
+				render(s, ctx, c)
 			}
 		}
 		return
@@ -925,7 +984,7 @@ func render(s *strings.Builder, c interface{}) {
 	// Fragment 只渲染子节点
 	if nodeName == "" {
 		if children != nil {
-			render(s, children)
+			render(s, ctx, children)
 		}
 		return
 	}
@@ -944,7 +1003,7 @@ func render(s *strings.Builder, c interface{}) {
 	s.WriteString("<")
 	s.WriteString(nodeName)
 	if attr != nil {
-		renderAttributes(s, attrMap)
+		renderAttributes(s, ctx, attrMap)
 	}
 
 	if selfclose {
@@ -960,11 +1019,11 @@ func render(s *strings.Builder, c interface{}) {
 		if ok {
 			s.WriteString(h)
 		} else {
-			render(s, html)
+			render(s, ctx, html)
 		}
 	} else {
 		if children != nil {
-			render(s, children)
+			render(s, ctx, children)
 		}
 	}
 
