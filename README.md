@@ -63,6 +63,17 @@ func TestJsx(t *testing.T) {
 }
 ```
 
+## Defects
+
+### How to bind event? e.g. onClick
+Since the binding event must happen on the browser, and jsx is js code, the browser needs to run the entire jsx component to bind the event correctly,
+which requires the introduction of react at the front end, otherwise it is very complicated to implement,
+but the use react will cause jsx to no longer be pure jsx, which in turn will cause `gojsx` to become more complicated.
+
+So `gojsx` can't implement event binding that uses simple react syntax.
+
+To save the day, you can either write your own js to manipulate the dom (as everyone did in the JQuery days), or use a library like AlpineJs.
+
 ## Dependents
 - [goja](https://github.com/dop251/goja)
 - [esbuild](https://github.com/evanw/esbuild)
