@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/stoewer/go-strcase"
 	"github.com/zbysir/gojsx/internal/js"
 	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/console"
@@ -33,6 +34,8 @@ type Jsx struct {
 	debug bool
 
 	cache SourceCache
+
+	modulesCache *lru.Cache[string, *goja.Program]
 }
 
 type SourceCache interface {
@@ -269,7 +272,20 @@ func (j *Jsx) runJs(vm *vmWithRegistry, fileName string, src []byte, transform T
 		}
 	}
 
-	v, err = vm.vm.RunScript(fileName, string(src))
+	// 缓存 compile
+	var p *goja.Program
+	cp, ok := j.modulesCache.Get(string(src))
+	if ok {
+		p = cp
+	} else {
+		p, err = goja.Compile(fileName, string(src), false)
+		if err != nil {
+			return
+		}
+		j.modulesCache.Add(string(src), p)
+	}
+
+	v, err = vm.vm.RunProgram(p)
 	if err != nil {
 		return nil, PrettifyException(err)
 	}
@@ -543,6 +559,11 @@ func NewJsx(op Option) (*Jsx, error) {
 		op.Fs = StdFileSystem
 	}
 
+	jsProgramCache, err := lru.New[string, *goja.Program](100)
+	if err != nil {
+		return nil, err
+	}
+
 	j := &Jsx{
 		vmPool: newTPool(op.VmMaxTotal, func() *vmWithRegistry {
 			vm := goja.New()
@@ -563,10 +584,11 @@ func NewJsx(op Option) (*Jsx, error) {
 				requireModule: requireModule,
 			}
 		}),
-		tr:    op.Transformer,
-		lock:  sync.Mutex{},
-		debug: op.Debug,
-		cache: op.SourceCache,
+		tr:           op.Transformer,
+		lock:         sync.Mutex{},
+		debug:        op.Debug,
+		cache:        op.SourceCache,
+		modulesCache: jsProgramCache,
 	}
 
 	return j, nil
