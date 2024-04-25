@@ -147,7 +147,7 @@ func TestRunJs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := j.ExecCode([]byte(`function HelloJSX(){return <p></p>}; export default <HelloJSX></HelloJSX>`), WithFileName("1.tsx"))
+	v, err := j.ExecCode([]byte(`function HelloJSX(){return <p>123</p>}; export default <HelloJSX></HelloJSX>`), WithFileName("1.tsx"))
 	if err != nil {
 		t.Fatal(err)
 	}
