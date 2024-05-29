@@ -60,6 +60,7 @@ func parseException(s string) error {
 	}
 }
 
+// PrettifyException make goja exceptions look more prettify.
 func PrettifyException(err error) error {
 	// return err
 	if ex, ok := err.(*goja.Exception); ok {

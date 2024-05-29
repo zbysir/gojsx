@@ -229,6 +229,36 @@ func TestExecJson(t *testing.T) {
 	t.Logf("%+v", n.Exports)
 }
 
+type Model struct {
+	ID uint
+}
+
+func TestEmbeddingStruct(t *testing.T) {
+	j, err := NewJsx(Option{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	props := struct {
+		Model
+		Name     string `json:"name"`
+		Age      int
+		FullName string
+	}{
+		Model{ID: 233},
+		"abc",
+		23,
+		"bysir",
+	}
+
+	v, _, err := j.RenderCode([]byte(`export default (props)=><p>{props.iD +' ' + props.name + ' '+ props.fullName + ' ' + props.age}</p>`), props, WithFileName("1.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, `<p>233 abc bysir 23</p>`, v)
+}
+
 func TestHydrate(t *testing.T) {
 	j, err := NewJsx(Option{})
 	if err != nil {

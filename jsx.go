@@ -331,8 +331,7 @@ func (j *Jsx) RenderCode(code []byte, props interface{}, opts ...OptionExec) (n 
 		s, ctx := t.Render()
 		return s, ctx, nil
 	default:
-		log.Printf("ex.Default: %#v", ex.Default)
-		panic(t)
+		log.Panicf("unspoort export type: %T, shound be a vdom", ex.Default)
 	}
 	return
 }
@@ -540,7 +539,13 @@ type Option struct {
 	Transformer Transformer
 	// Fs 没办法做到每次执行代码时指定，因为 require 可能会发生在异步 function 里，fs 改变会导致加载文件错误
 	Fs fs.FS // default is StdFileSystem
+
+	// GojaFieldNameMapper Specify the mapping of field names in go struct and js.
+	// via: https://github.com/dop251/goja#mapping-struct-field-and-method-names
+	GojaFieldNameMapper goja.FieldNameMapper
 }
+
+var defaultFieldNameMapper = TagFieldNameMapper("json", true, true)
 
 func NewJsx(op Option) (*Jsx, error) {
 	if op.VmMaxTotal <= 0 {
@@ -558,6 +563,9 @@ func NewJsx(op Option) (*Jsx, error) {
 	if op.Fs == nil {
 		op.Fs = StdFileSystem
 	}
+	if op.GojaFieldNameMapper == nil {
+		op.GojaFieldNameMapper = defaultFieldNameMapper
+	}
 
 	jsProgramCache, err := lru.New[string, *goja.Program](100)
 	if err != nil {
@@ -567,7 +575,7 @@ func NewJsx(op Option) (*Jsx, error) {
 	j := &Jsx{
 		vmPool: newTPool(op.VmMaxTotal, func() *vmWithRegistry {
 			vm := goja.New()
-			vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+			vm.SetFieldNameMapper(op.GojaFieldNameMapper)
 
 			if op.Debug {
 				log.Printf("new vm")
