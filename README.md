@@ -7,6 +7,12 @@ Render Jsx / Tsx / MD / MDX by Golang.
 Features:
 - Pure Golang, fast and simple
 
+## Install
+
+```shell
+go get github.com/zbysir/gojsx
+```
+
 ## Example
 
 ### TSX
