@@ -691,6 +691,7 @@ type VDom map[string]interface{}
 // 处理 React 中标签语法与标准标签的对应关系。如将 strokeWidth 换为 stroke-width。
 // 参考 react-dom/cjs/react-dom-server-legacy.node.development.js 实现
 var propsToAttr = map[string]string{}
+var boolAttr = map[string]bool{} // 如果是 boolAttr，当传递了 attr value 则会渲染，否则不会渲染整个 attr key
 
 func init() {
 	// A few React string attributes have a different name. This is a mapping from React prop names to the attribute names.
@@ -711,12 +712,13 @@ func init() {
 
 	// These attribute exists both in HTML and SVG. The attribute name is case-sensitive in SVG so we can't just use the React name like we do for attributes that exist only in HTML.
 	for _, a := range []string{"tabIndex", "crossOrigin"} {
-		propsToAttr[a] = strings.ToLower(a)
+		propsToAttr[a] = a
 	}
 
 	// These are HTML boolean attributes.
 	for _, a := range []string{"allowFullScreen", "async", "autoFocus", "autoPlay", "controls", "default", "defer", "disabled", "disablePictureInPicture", "disableRemotePlayback", "formNoValidate", "hidden", "loop", "noModule", "noValidate", "open", "playsInline", "readOnly", "required", "reversed", "scoped", "seamless", "itemScope"} {
 		propsToAttr[a] = strings.ToLower(a)
+		boolAttr[strings.ToLower(a)] = true
 	}
 }
 
@@ -783,16 +785,36 @@ func renderAttributes(s *strings.Builder, ctx *RenderCtx, props map[string]inter
 			renderStyle(s, val)
 			s.WriteString(`"`)
 		default:
-			s.WriteString(" ")
 			if n, ok := propsToAttr[k]; ok {
-				s.WriteString(n)
-			} else {
-				s.WriteString(k)
+				k = n
 			}
-			switch val.(type) {
-			case string, int, int32, int16, int8, int64, float64, float32:
-				s.WriteString(`=`)
-				renderAttributeValue(s, val)
+
+			if boolAttr[k] {
+				tr := false
+				switch t := val.(type) {
+				case string:
+					tr = strings.ToLower(t) == "true"
+				case int, int32, int16, int8, int64, float64, float32:
+					tr = val != 0
+				case bool:
+					tr = t
+				}
+				if tr {
+					s.WriteString(" ")
+					s.WriteString(k)
+				}
+			} else {
+				s.WriteString(" ")
+				if n, ok := propsToAttr[k]; ok {
+					s.WriteString(n)
+				} else {
+					s.WriteString(k)
+				}
+				switch val.(type) {
+				case string, int, int32, int16, int8, int64, float64, float32:
+					s.WriteString(`=`)
+					renderAttributeValue(s, val)
+				}
 			}
 		}
 	})

@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"github.com/stretchr/testify/assert"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -278,4 +279,18 @@ func TestHydrate(t *testing.T) {
 			"hydrate-a": `{"name":"1"}`,
 		},
 	}, ctx.Hydrate)
+}
+
+func TestRenderAttributes(t *testing.T) {
+	var s strings.Builder
+	renderAttributes(&s, &RenderCtx{}, map[string]interface{}{
+		"tabIndex":  1,
+		"autoFocus": "true",
+		"default":   true,
+		"disabled":  1,
+		"async":     false,
+		"data-abc":  "abc",
+	})
+
+	assert.Equal(t, ` autofocus data-abc="abc" default disabled tabIndex="1"`, s.String())
 }
