@@ -804,16 +804,19 @@ func renderAttributes(s *strings.Builder, ctx *RenderCtx, props map[string]inter
 					s.WriteString(k)
 				}
 			} else {
-				s.WriteString(" ")
-				if n, ok := propsToAttr[k]; ok {
-					s.WriteString(n)
-				} else {
-					s.WriteString(k)
-				}
-				switch val.(type) {
-				case string, int, int32, int16, int8, int64, float64, float32:
+				vs := attributeValueToString(val)
+				if vs != "" {
+					s.WriteString(" ")
+					if n, ok := propsToAttr[k]; ok {
+						s.WriteString(n)
+					} else {
+						s.WriteString(k)
+					}
+
 					s.WriteString(`=`)
-					renderAttributeValue(s, val)
+					s.WriteString(`"`)
+					s.WriteString(vs)
+					s.WriteString(`"`)
 				}
 			}
 		}
@@ -836,6 +839,17 @@ func renderAttributeValue(s *strings.Builder, val interface{}) {
 		s.WriteString(fmt.Sprintf("%v", t))
 		s.WriteString(`"`)
 	}
+}
+
+func attributeValueToString(val interface{}) string {
+	// 只支持 string/int
+	switch t := val.(type) {
+	case string:
+		return template.HTMLEscapeString(t)
+	case int, int64, int32, int16, int8, float64, float32, bool, uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf(`%v`, t)
+	}
+	return ""
 }
 
 // cleanClass delete \n and extra space

@@ -3,7 +3,7 @@
 export default function Index(props) {
   const App = require("./App").default
 
-  return <html lang="zh" datatype>
+  return <html lang="zh">
   <head>
     <meta charSet="UTF-8"/>
     <title>{props.title || 'UnTitled'}</title>
