@@ -296,3 +296,32 @@ func TestRenderAttributes(t *testing.T) {
 
 	assert.Equal(t, ` autofocus data-abc="abc" data-bool="false" default disabled tabIndex="1"`, s.String())
 }
+
+func TestRenderStyle(t *testing.T) {
+	var s strings.Builder
+	renderStyle(&s, map[string]interface{}{
+		"color":     "#fff",
+		"--color":   "#EEE",
+		"---color":  "#EEE",
+		"a-color":   "#EEE",
+		"fontWidth": "100",
+	})
+
+	assert.Equal(t, "---color: #EEE; --color: #EEE; a-color: #EEE; color: #fff; font-width: 100;", s.String())
+}
+
+func TestHyphenateStyleName(t *testing.T) {
+	cases := map[string]string{
+		"fontWidth":     "font-width",
+		"FontWidth":     "font-width",
+		"color":         "color",
+		"Color":         "color",
+		"--color":       "--color",
+		"MozTransition": "-moz-transition",
+		"msTransition":  "-ms-transition",
+	}
+
+	for in, out := range cases {
+		assert.Equal(t, out, hyphenateStyleName(in))
+	}
+}

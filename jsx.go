@@ -902,8 +902,7 @@ func renderStyle(s *strings.Builder, val interface{}) {
 			} else {
 				s.WriteString(" ")
 			}
-			// /node_modules/react-dom/cjs/react-dom-server-legacy.node.development.js hyphenateStyleName
-			s.WriteString(strcase.KebabCase(k))
+			s.WriteString(hyphenateStyleName(k))
 			s.WriteString(":")
 			s.WriteString(" ")
 			s.WriteString(fmt.Sprintf("%v", v))
@@ -915,6 +914,39 @@ func renderStyle(s *strings.Builder, val interface{}) {
 	default:
 		s.WriteString(fmt.Sprintf("%v", t))
 	}
+}
+
+//
+// /node_modules/react-dom/cjs/react-dom-server.node.development.js hyphenateStyleName
+//
+//var uppercasePattern = /([A-Z])/g;
+//var msPattern$1 = /^ms-/;
+/**
+ * Hyphenates a camelcased CSS property name, for example:
+ *
+ *   > hyphenateStyleName('backgroundColor')
+ *   < "background-color"
+ *   > hyphenateStyleName('MozTransition')
+ *   < "-moz-transition"
+ *   > hyphenateStyleName('msTransition')
+ *   < "-ms-transition"
+ *
+ * As Modernizr suggests (http://modernizr.com/docs/#prefixed), an `ms` prefix
+ * is converted to `-ms-`.
+ */
+// function hyphenateStyleName(name) {
+// return name.replace(uppercasePattern, '-$1').toLowerCase().replace(msPattern$1, '-ms-');
+//}
+
+func hyphenateStyleName(s string) string {
+	s = ToKebabCase(s)
+
+	// "msTransition" -> "-ms-transition",
+	if strings.HasPrefix(s, "ms-") || strings.HasPrefix(s, "moz-") {
+		s = "-" + s
+	}
+
+	return s
 }
 
 func (v VDom) printChild(s *strings.Builder, indent int, c interface{}) {
