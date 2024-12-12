@@ -191,9 +191,13 @@ func WithFileName(fn string) OptionExec {
 	return fileNameOption(fn)
 }
 
+var defaultExecOptions = execOptions{
+	FileName: "index.jsx",
+}
+
 // ExecCode code 需要是 ESModule 格式，如 export default () => <></>
 func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err error) {
-	var p execOptions
+	var p = defaultExecOptions
 	for _, o := range opts {
 		o.applyRunOptions(&p)
 	}
@@ -226,7 +230,7 @@ func (j *Jsx) ExecCode(src []byte, opts ...OptionExec) (ex *ModuleExport, err er
 
 	fileName := p.FileName
 	if fileName == "" {
-		fileName = "root.js"
+		fileName = "index.js"
 	}
 
 	v, err := j.runJs(vm, fileName, src, TransformerFormatIIFE)
@@ -1042,7 +1046,7 @@ func Render(i interface{}) (string, *RenderCtx) {
 }
 
 func render(s *strings.Builder, ctx *RenderCtx, c interface{}) {
-	var v map[string]interface{}
+	var obj map[string]interface{}
 
 	switch t := c.(type) {
 	case string:
@@ -1056,20 +1060,33 @@ func render(s *strings.Builder, ctx *RenderCtx, c interface{}) {
 		}
 		return
 	case map[string]interface{}:
-		v = t
+		obj = t
 	case VDom:
-		v = t
+		obj = t
 	default:
+		// for literal, e.g. 1, 2, 3, false
 		s.WriteString(template.HTMLEscapeString(fmt.Sprintf("%v", c)))
 		return
 	}
 
-	if v == nil {
+	if obj == nil {
 		return
 	}
-	i := v["nodeName"]
+
+	// for {{ __dangerousHTML: end_of_header_code }}
+	isHtml := obj["__dangerousHTML"]
+
+	if ht, ok := isHtml.(string); ok {
+		if len(ht) > 0 {
+			s.WriteString(ht)
+		}
+		return
+	}
+
+	i := obj["nodeName"]
+
 	nodeName, _ := i.(string)
-	attr := v["attributes"]
+	attr := obj["attributes"]
 	var children interface{}
 	var attrMap map[string]interface{}
 	if attr != nil {
@@ -1079,6 +1096,7 @@ func render(s *strings.Builder, ctx *RenderCtx, c interface{}) {
 			children = ci
 		}
 	}
+
 	// Fragment 只渲染子节点
 	if nodeName == "" {
 		if children != nil {

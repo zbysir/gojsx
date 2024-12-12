@@ -325,3 +325,34 @@ func TestHyphenateStyleName(t *testing.T) {
 		assert.Equal(t, out, hyphenateStyleName(in))
 	}
 }
+
+func TestRenderDangerouslyHtml(t *testing.T) {
+	j, err := NewJsx(Option{
+		SourceCache: nil,
+		Fs:          srcfs,
+		Debug:       false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	j.RegisterModule("react", map[string]interface{}{
+		"useEffect": func() {},
+	})
+
+	s, _, err := j.RenderCode([]byte(`
+export default function Index(props) {
+	return <>
+{props.html}
+
+{{"__dangerousHTML": props.html}}
+</>
+}
+`), map[string]interface{}{"html": `<h1>dangerouslySetInnerHTML</h1>`, "object": map[string]any{"_": "test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, "&lt;h1&gt;dangerouslySetInnerHTML&lt;/h1&gt;<h1>dangerouslySetInnerHTML</h1>", s)
+
+}

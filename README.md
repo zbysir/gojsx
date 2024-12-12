@@ -69,6 +69,21 @@ func TestJsx(t *testing.T) {
 }
 ```
 
+## Extended syntax
+In addition to supporting most of the syntax of jsx, gojsx also supports some special syntax
+
+### Render raw html 
+
+Use `{{__dangerousHTML}}` to render raw html without any tag.
+
+```jsx
+export default function Index(props) {
+    return <>
+      {{__dangerousHTML: props.rawHtml}}
+    </>
+}
+```
+
 ## Defects
 
 ### How to bind event? e.g. onClick
