@@ -1049,6 +1049,9 @@ func render(s *strings.Builder, ctx *RenderCtx, c interface{}) {
 	var obj map[string]interface{}
 
 	switch t := c.(type) {
+	case bool:
+		// react will not render any Bool type (true and false)
+		return
 	case string:
 		s.WriteString(template.HTMLEscapeString(t))
 		return

@@ -3,6 +3,7 @@ package gojsx
 import (
 	"embed"
 	_ "embed"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"strings"
@@ -354,5 +355,75 @@ export default function Index(props) {
 	}
 
 	assert.Equal(t, "&lt;h1&gt;dangerouslySetInnerHTML&lt;/h1&gt;<h1>dangerouslySetInnerHTML</h1>", s)
+}
+
+// TestRenderCondition 测试 || && 这样的断路语法
+// 注意，在 react 中，null, undefined, false, true 都不会显示渲染出 dom，0 会渲染出 0
+func TestRenderCondition(t *testing.T) {
+	j, err := NewJsx(Option{
+		SourceCache: nil,
+		Fs:          srcfs,
+		Debug:       false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	j.RegisterModule("react", map[string]interface{}{
+		"useEffect": func() {},
+	})
+
+	cases := []struct {
+		name string
+		want string
+		code string
+	}{
+		{
+			name: "first name",
+			want: "first name",
+			code: "{props.first || props.second}",
+		},
+		{
+			name: "has second",
+			want: "<a>has second</a>",
+			code: "{props.second && <a>has second</a>}",
+		},
+		{
+			name: "nothing false &&",
+			want: "",
+			code: "{props.ffalse && <a>has ffalse</a>}",
+		},
+		{
+			name: "nothing false",
+			want: "",
+			code: "{props.ffalse}",
+		},
+		{
+			name: "nothing true",
+			want: "",
+			code: "{props.tture}",
+		},
+		{
+			name: "zeroFloat",
+			want: "0",
+			code: "{props.zeroFloat}",
+		},
+	}
+	props := map[string]interface{}{"first": `first name`, "second": true, "ffalse": false, "tture": true, "zeroFloat": 0.0}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, _, err := j.RenderCode([]byte(fmt.Sprintf(`
+export default function Index(props) {
+	return <>%s</>
+}
+`, c.code)), props)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			assert.Equal(t, c.want, s)
+		})
+	}
 
 }
