@@ -2,14 +2,14 @@ package gojsx
 
 import (
 	"embed"
-	_ "embed"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 //go:embed test
@@ -293,9 +293,13 @@ func TestRenderAttributes(t *testing.T) {
 		"data-abc":   "abc",
 		"data-empty": "",
 		"data-bool":  false,
+		"muted":      false,
+		"checked":    true,
+		"selected":   true,
+		"multiple":   true,
 	})
 
-	assert.Equal(t, ` autofocus data-abc="abc" data-bool="false" default disabled tabIndex="1"`, s.String())
+	assert.Equal(t, ` autofocus checked data-abc="abc" data-bool="false" default disabled multiple selected tabIndex="1"`, s.String())
 }
 
 func TestRenderStyle(t *testing.T) {

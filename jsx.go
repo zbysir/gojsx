@@ -5,12 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/dop251/goja"
-	lru "github.com/hashicorp/golang-lru/v2"
-	"github.com/stoewer/go-strcase"
-	"github.com/zbysir/gojsx/internal/js"
-	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/console"
-	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/require"
 	"html/template"
 	"io/fs"
 	"log"
@@ -21,6 +15,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/dop251/goja"
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/stoewer/go-strcase"
+	"github.com/zbysir/gojsx/internal/js"
+	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/console"
+	"github.com/zbysir/gojsx/internal/pkg/goja_nodejs/require"
 )
 
 type Jsx struct {
@@ -720,7 +721,10 @@ func init() {
 	}
 
 	// These are HTML boolean attributes.
-	for _, a := range []string{"allowFullScreen", "async", "autoFocus", "autoPlay", "controls", "default", "defer", "disabled", "disablePictureInPicture", "disableRemotePlayback", "formNoValidate", "hidden", "loop", "noModule", "noValidate", "open", "playsInline", "readOnly", "required", "reversed", "scoped", "seamless", "itemScope"} {
+	// ref: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes#boolean_attributes
+	// The `muted` content attribute on media elements is a boolean attribute: https://html.spec.whatwg.org/#boolean-attributes
+	for _, a := range []string{"allowFullScreen", "async", "autoFocus", "autoPlay", "controls", "default", "defer", "disabled", "disablePictureInPicture", "disableRemotePlayback", "formNoValidate", "hidden", "loop", "noModule", "noValidate", "open", "playsInline", "readOnly", "required", "reversed", "scoped", "seamless", "itemScope",
+		"muted", "checked", "selected", "multiple"} {
 		propsToAttr[a] = strings.ToLower(a)
 		boolAttr[strings.ToLower(a)] = true
 	}
