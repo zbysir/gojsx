@@ -1,3 +1,5 @@
+
+
 # gojsx
 
 Render Jsx / Tsx / MD / MDX by Golang.
@@ -60,11 +62,12 @@ func TestJsx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := j.Render("./test/Index.jsx", map[string]interface{}{"li": []int64{1, 2, 3, 4}})
+	v, err := j.Exec("./test/Index.jsx", gojsx.WithAutoExecJsx(map[string]interface{}{"li": []int64{1, 2, 3, 4}}))
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	s := gojsx.Render(v.Default)
 	t.Logf("%+v", s)
 }
 ```
